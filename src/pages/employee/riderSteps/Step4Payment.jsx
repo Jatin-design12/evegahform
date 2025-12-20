@@ -1,0 +1,307 @@
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { QRCodeCanvas } from "qrcode.react";
+import { useRiderForm } from "../RiderFormContext";
+import { apiFetch } from "../../../config/api";
+import { downloadRiderReceiptPdf } from "../../../utils/riderReceiptPdf";
+
+export default function Step4Payment() {
+  const { formData, resetForm } = useRiderForm();
+  const navigate = useNavigate();
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [completed, setCompleted] = useState(false);
+  const [registration, setRegistration] = useState(null);
+  const [formSnapshot, setFormSnapshot] = useState(null);
+  const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
+  const [whatsAppStatus, setWhatsAppStatus] = useState("");
+
+  const upiId = import.meta.env.VITE_EVEGAH_UPI_ID || "";
+  const payeeName = import.meta.env.VITE_EVEGAH_PAYEE_NAME || "Evegah";
+
+  const amount = Number(formData.totalAmount || 0);
+
+  const upiPayload = useMemo(() => {
+    if (!upiId) return "";
+    const params = new URLSearchParams({
+      pa: upiId,
+      pn: payeeName,
+      am: amount ? String(amount) : "",
+      cu: "INR",
+    });
+    return `upi://pay?${params.toString()}`;
+  }, [upiId, payeeName, amount]);
+
+  const handleSubmit = async () => {
+    setSubmitError("");
+    setWhatsAppStatus("");
+
+    const fullName = String(formData.name || "").trim();
+    const phoneDigits = String(formData.phone || "").replace(/\D/g, "").slice(0, 10);
+    const aadhaarDigits = String(formData.aadhaar || "").replace(/\D/g, "").slice(0, 12);
+
+    if (!fullName) {
+      setSubmitError("Rider name is required.");
+      return;
+    }
+    if (phoneDigits.length !== 10) {
+      setSubmitError("Valid 10-digit mobile number is required.");
+      return;
+    }
+    if (!formData.rentalStart) {
+      setSubmitError("Rental start date & time is required.");
+      return;
+    }
+    if (!Array.isArray(formData.preRidePhotos) || formData.preRidePhotos.length === 0) {
+      setSubmitError("Upload at least one pre-ride vehicle photo before completing.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const snapshot =
+        typeof structuredClone === "function"
+          ? structuredClone(formData)
+          : JSON.parse(JSON.stringify(formData));
+
+      const startIso = new Date(formData.rentalStart).toISOString();
+      const endIso = formData.rentalEnd ? new Date(formData.rentalEnd).toISOString() : null;
+
+      const vehicleNumber =
+        String(formData.vehicleNumber || formData.bikeId || "").trim() || null;
+
+      const registration = await apiFetch("/api/registrations/new-rider", {
+        method: "POST",
+        body: {
+          rider: {
+            full_name: fullName,
+            mobile: phoneDigits,
+            aadhaar: aadhaarDigits || null,
+            dob: formData.dob ? String(formData.dob).slice(0, 10) : null,
+            gender: formData.gender || null,
+            permanent_address: formData.permanentAddress || null,
+            temporary_address: formData.temporaryAddress || null,
+            reference: formData.reference || null,
+            meta: {
+              aadhaar_verified: Boolean(formData.aadhaarVerified),
+              aadhaar_verification_method: formData.aadhaarVerified ? "otp" : null,
+            },
+          },
+          rental: {
+            start_time: startIso,
+            end_time: endIso,
+            rental_package: formData.rentalPackage || null,
+            rental_amount: Number(formData.rentalAmount || 0),
+            deposit_amount: Number(formData.securityDeposit || 0),
+            total_amount: Number(formData.totalAmount || 0),
+            payment_mode: String(formData.paymentMode || "").trim() || null,
+            bike_model: formData.bikeModel || null,
+            bike_id: formData.bikeId || null,
+            battery_id: formData.batteryId || null,
+            vehicle_number: vehicleNumber,
+            accessories: Array.isArray(formData.accessories) ? formData.accessories : [],
+            other_accessories: formData.otherAccessories || null,
+            meta: {
+              zone: formData.operationalZone || null,
+              agreement_accepted: Boolean(formData.agreementAccepted),
+              agreement_confirm_info: Boolean(formData.agreementConfirmInfo),
+              agreement_accept_terms: Boolean(formData.agreementAcceptTerms),
+              agreement_date: formData.agreementDate || null,
+              issued_by_name: formData.issuedByName || null,
+            },
+          },
+          documents: {
+            riderPhoto: formData.riderPhoto || null,
+            governmentId: formData.governmentId || null,
+            preRidePhotos: Array.isArray(formData.preRidePhotos) ? formData.preRidePhotos : [],
+            riderSignature: formData.riderSignature || null,
+          },
+        },
+      });
+
+      setRegistration(registration);
+      setFormSnapshot(snapshot);
+      setCompleted(true);
+    } catch (e) {
+      setSubmitError(String(e?.message || e || "Unable to complete registration"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDownloadReceipt = async () => {
+    setWhatsAppStatus("");
+    try {
+      await downloadRiderReceiptPdf({ formData: formSnapshot || formData, registration });
+    } catch (e) {
+      setWhatsAppStatus(
+        e?.message ? `Unable to generate receipt: ${e.message}` : "Unable to generate receipt."
+      );
+    }
+  };
+
+  const handleSendWhatsApp = async () => {
+    setWhatsAppStatus("");
+    const phoneDigits = String((formSnapshot || formData)?.phone || "")
+      .replace(/\D/g, "")
+      .slice(0, 10);
+    if (phoneDigits.length !== 10) {
+      setWhatsAppStatus("Valid 10-digit mobile number is required.");
+      return;
+    }
+
+    setSendingWhatsApp(true);
+    try {
+      const res = await apiFetch("/api/whatsapp/send-receipt", {
+        method: "POST",
+        body: {
+          to: phoneDigits,
+          formData: formSnapshot || formData,
+          registration,
+        },
+      });
+
+      if (res?.sent) {
+        setWhatsAppStatus("Receipt sent on WhatsApp.");
+      } else if (res?.mediaUrl) {
+        // Fallback: if provider isn't configured, let staff send the link manually.
+        const text = encodeURIComponent(
+          `EVegah Receipt (PDF): ${res.mediaUrl}`
+        );
+          window.open(`https://wa.me/91${phoneDigits}?text=${text}`, "_self");
+        setWhatsAppStatus("WhatsApp API not configured. Opened WhatsApp with receipt link.");
+      } else {
+        setWhatsAppStatus("Unable to send receipt on WhatsApp.");
+      }
+    } catch (e) {
+      setWhatsAppStatus(String(e?.message || e || "Unable to send on WhatsApp"));
+    } finally {
+      setSendingWhatsApp(false);
+    }
+  };
+
+  const handleNewRegistration = () => {
+    setCompleted(false);
+    setRegistration(null);
+    setFormSnapshot(null);
+    setWhatsAppStatus("");
+    resetForm();
+    navigate("/employee/new-rider/step-1", { replace: true });
+  };
+
+  return (
+    <div className="card space-y-6 mx-auto w-full max-w-5xl">
+      <div>
+        <h3 className="text-base font-semibold text-evegah-text">Payment</h3>
+        <p className="text-sm text-gray-500">
+          Collect payment and print the form if needed.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="rounded-xl border border-evegah-border bg-gray-50 p-4 space-y-3">
+          <h4 className="font-medium text-evegah-text">Payment QR</h4>
+          <p className="text-sm text-gray-500">
+            Scan to pay via UPI.
+          </p>
+
+          {upiPayload ? (
+            <div className="rounded-xl border border-evegah-border bg-white p-4 inline-flex">
+              <QRCodeCanvas value={upiPayload} size={180} />
+            </div>
+          ) : (
+            <p className="text-sm text-red-600">
+              UPI QR is not configured. Set `VITE_EVEGAH_UPI_ID` in your `.env`.
+            </p>
+          )}
+
+          <div className="text-sm text-evegah-text space-y-1">
+            <div>
+              <span className="text-gray-500">Total Amount:</span> {amount}
+            </div>
+            <div>
+              <span className="text-gray-500">Payment Mode:</span> {String(formData.paymentMode || "-")}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-evegah-border bg-white p-4 space-y-3">
+          <h4 className="font-medium text-evegah-text">Actions</h4>
+          <p className="text-sm text-gray-500">
+            Use print for a paper copy. Download or send the receipt after completion.
+          </p>
+
+          {!completed ? (
+            <div className="flex flex-wrap gap-2 print:hidden">
+              <button
+                type="button"
+                className="btn-outline"
+                onClick={() => navigate("../step-3")}
+                disabled={submitting}
+                aria-disabled={submitting}
+              >
+                ← Back
+              </button>
+
+              <button type="button" className="btn-muted" onClick={() => window.print()}>
+                Print Form
+              </button>
+
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleSubmit}
+                disabled={submitting}
+                aria-disabled={submitting}
+              >
+                {submitting ? "Saving..." : "Complete"}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+                Rider registered successfully.
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="btn-outline" onClick={handleDownloadReceipt}>
+                  Download Receipt (PDF)
+                </button>
+
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={handleSendWhatsApp}
+                  disabled={sendingWhatsApp}
+                  aria-disabled={sendingWhatsApp}
+                >
+                  {sendingWhatsApp ? "Sending..." : "Send on WhatsApp"}
+                </button>
+
+                <button type="button" className="btn-muted" onClick={handleNewRegistration}>
+                  New Registration
+                </button>
+              </div>
+            </div>
+          )}
+
+          {submitError ? <p className="text-sm text-red-600">{submitError}</p> : null}
+          {whatsAppStatus ? (
+            <p
+              className={
+                "text-sm " +
+                (whatsAppStatus.toLowerCase().includes("sent") ||
+                whatsAppStatus.toLowerCase().includes("opened")
+                  ? "text-green-700"
+                  : "text-red-600")
+              }
+            >
+              {whatsAppStatus}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
