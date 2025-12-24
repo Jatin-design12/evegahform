@@ -274,11 +274,13 @@ export default function Step1RiderDetails() {
 
       if (riderVideoRef.current) {
         riderVideoRef.current.srcObject = stream;
-        try {
-          await riderVideoRef.current.play();
-        } catch {
-          // Some browsers may block play() despite autoPlay/muted; stream can still be active.
-        }
+        riderVideoRef.current.onloadedmetadata = async () => {
+          try {
+            await riderVideoRef.current?.play();
+          } catch {
+            // Some browsers may block play() despite autoPlay/muted; stream can still be active.
+          }
+        };
       }
     } catch (e) {
       setCameraActive(false);
