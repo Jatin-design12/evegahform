@@ -6,6 +6,7 @@ import {
   Bike,
   BatteryCharging,
   LogOut,
+  X,
 } from "lucide-react";
 import logo from "../assets/logo.png";
 
@@ -16,30 +17,42 @@ const active =
 const inactive =
   "text-gray-600 hover:bg-gray-100";
 
-export default function EmployeeSidebar() {
+export default function EmployeeSidebar({ isMobile = false, onClose, onLogout }) {
   return (
-    <aside className="w-64 bg-white border-r border-gray-200 h-screen flex flex-col">
+    <aside className="bg-white border-r border-gray-200 h-full flex flex-col">
       {/* LOGO */}
-      <div className="p-5">
+      <div className="flex items-center justify-between p-5">
         <img src={logo} className="h-24" alt="eVEGAH" />
+        {isMobile ? (
+          <button
+            type="button"
+            aria-label="Close menu"
+            className="w-10 h-10 rounded-xl grid place-items-center text-gray-700 hover:bg-gray-100"
+            onClick={onClose}
+          >
+            <X size={20} />
+          </button>
+        ) : null}
       </div>
 
       {/* NAV */}
-      <nav className="px-3 space-y-1 flex-1">
+      <nav className="px-3 space-y-1 flex-1 overflow-y-auto">
         <NavLink
           to="/employee/dashboard"
           className={({ isActive }) =>
             `${navItem} ${isActive ? active : inactive}`
           }
+          onClick={() => onClose?.()}
         >
           <LayoutGrid size={18} />
           Dashboard
         </NavLink>
-
+        <NavLink
         <NavLink
           to="/employee/new-rider"
           className={({ isActive }) =>
-            `${navItem} ${isActive ? active : inactive}`
+          }
+          onClick={() => onClose?.()}
           }
         >
           <UserPlus size={18} />
@@ -49,8 +62,8 @@ export default function EmployeeSidebar() {
         <NavLink
           to="/employee/retain-rider"
           className={({ isActive }) =>
-            `${navItem} ${isActive ? active : inactive}`
-          }
+          className="flex items-center gap-2 text-red-600 text-sm"
+          onClick={onLogout}
         >
           <RotateCcw size={18} />
           Retain Rider

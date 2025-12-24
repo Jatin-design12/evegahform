@@ -260,12 +260,15 @@ export default function Step1RiderDetails() {
       let stream;
       try {
         stream = await tryGetStream({
-          video: { facingMode: { ideal: "user" } },
+          video: { facingMode: { ideal: "environment" } },
           audio: false,
         });
       } catch (firstError) {
         try {
-          stream = await tryGetStream({ video: true, audio: false });
+          stream = await tryGetStream({
+            video: true,
+            audio: false,
+          });
         } catch (secondError) {
           throw secondError || firstError;
         }
