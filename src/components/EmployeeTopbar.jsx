@@ -15,20 +15,22 @@ const navItem =
 const active = "bg-brand-light text-brand-dark font-medium";
 const inactive = "text-gray-600 hover:bg-gray-100";
 
-export default function EmployeeTopbar({ onSidebarToggle, onLogout }) {
+export default function EmployeeTopbar({ onSidebarToggle, onLogout, showSidebarButton = true }) {
 
   return (
     <header className="bg-white border-b border-evegah-border">
       <div className="px-4 sm:px-8 py-3 sm:py-4 grid grid-cols-[auto,1fr,auto] items-center gap-3 sm:gap-4">
         <div className="flex items-center gap-3 flex-shrink-0">
-          <button
-            type="button"
-            className="sm:hidden w-11 h-11 rounded-2xl border border-evegah-border bg-white grid place-items-center text-gray-700"
-            aria-label="Open menu"
-            onClick={onSidebarToggle}
-          >
-            <Menu size={18} />
-          </button>
+          {showSidebarButton ? (
+            <button
+              type="button"
+              className="sm:hidden w-11 h-11 rounded-2xl border border-evegah-border bg-white grid place-items-center text-gray-700"
+              aria-label="Open menu"
+              onClick={onSidebarToggle}
+            >
+              <Menu size={18} />
+            </button>
+          ) : null}
 
           <img src={logo} className="h-14 sm:h-24" alt="eVEGAH" />
         </div>

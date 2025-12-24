@@ -468,7 +468,7 @@ export default function Dashboard() {
   }, [overdueCount]);
 
   return (
-    <EmployeeLayout>
+    <EmployeeLayout showSidebar={false}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4 mb-6">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">

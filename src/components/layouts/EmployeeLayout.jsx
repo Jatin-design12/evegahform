@@ -7,7 +7,7 @@ import EmployeeSidebar from "../EmployeeSidebar";
 import { auth } from "../../config/firebase";
 import { clearAuthSession } from "../../utils/authSession";
 
-export default function EmployeeLayout({ children }) {
+export default function EmployeeLayout({ children, showSidebar = true }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
 
@@ -22,15 +22,25 @@ export default function EmployeeLayout({ children }) {
     navigate("/", { replace: true });
   }, [navigate]);
 
+  const openSidebar = () => {
+    if (!showSidebar) return;
+    setSidebarOpen(true);
+  };
+
+  const closeSidebar = () => setSidebarOpen(false);
+
   return (
     <div className="min-h-screen flex bg-evegah-bg">
-      <div className="hidden lg:flex flex-shrink-0 h-full border-r border-evegah-border">
-        <EmployeeSidebar onLogout={handleLogout} />
-      </div>
+      {showSidebar ? (
+        <div className="hidden lg:flex flex-shrink-0 h-full border-r border-evegah-border">
+          <EmployeeSidebar onLogout={handleLogout} />
+        </div>
+      ) : null}
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <EmployeeTopbar
-          onSidebarToggle={() => setSidebarOpen(true)}
+          onSidebarToggle={openSidebar}
+          showSidebarButton={showSidebar}
           onLogout={handleLogout}
         />
 
@@ -39,26 +49,26 @@ export default function EmployeeLayout({ children }) {
         </main>
       </div>
 
-      {sidebarOpen && (
+      {showSidebar && sidebarOpen ? (
         <div className="fixed inset-0 z-50 flex lg:hidden">
           <button
             type="button"
             className="absolute inset-0 bg-black/40"
             aria-label="Close navigation"
-            onClick={() => setSidebarOpen(false)}
+            onClick={closeSidebar}
           />
           <div className="relative w-72 h-full">
             <EmployeeSidebar
               isMobile
-              onClose={() => setSidebarOpen(false)}
+              onClose={closeSidebar}
               onLogout={async () => {
-                setSidebarOpen(false);
+                closeSidebar();
                 await handleLogout();
               }}
             />
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
