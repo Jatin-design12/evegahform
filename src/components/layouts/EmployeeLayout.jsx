@@ -7,7 +7,7 @@ import EmployeeSidebar from "../EmployeeSidebar";
 import { auth } from "../../config/firebase";
 import { clearAuthSession } from "../../utils/authSession";
 
-export default function EmployeeLayout({ children, showSidebar = true }) {
+export default function EmployeeLayout({ children, showSidebar = false }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
 
