@@ -929,6 +929,25 @@ app.delete("/api/riders/:id", async (req, res) => {
   }
 });
 
+app.post("/api/riders/bulk-delete", async (req, res) => {
+  const ids = Array.isArray(req.body?.ids)
+    ? req.body.ids.map((id) => String(id || "").trim()).filter(Boolean)
+    : [];
+  if (ids.length === 0) {
+    return res.status(400).json({ error: "ids required" });
+  }
+
+  try {
+    const { rowCount } = await pool.query(
+      `delete from public.riders where id = any($1::text[])`,
+      [ids]
+    );
+    res.json({ deleted: rowCount });
+  } catch (error) {
+    res.status(500).json({ error: String(error?.message || error) });
+  }
+});
+
 app.get("/api/rentals", async (_req, res) => {
   try {
     const { rows } = await pool.query(
@@ -2422,6 +2441,21 @@ app.delete("/api/admin/battery-swaps/:id", requireAdmin, async (req, res) => {
   try {
     await pool.query(`delete from public.battery_swaps where id = $1`, [id]);
     res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: String(error?.message || error) });
+  }
+});
+
+app.post("/api/admin/battery-swaps/bulk-delete", requireAdmin, async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map((v) => String(v || "").trim()).filter(Boolean) : [];
+  if (ids.length === 0) return res.status(400).json({ error: "ids required" });
+
+  try {
+    const { rowCount } = await pool.query(
+      `delete from public.battery_swaps where id = any($1::uuid[])`,
+      [ids]
+    );
+    res.json({ deleted: rowCount });
   } catch (error) {
     res.status(500).json({ error: String(error?.message || error) });
   }

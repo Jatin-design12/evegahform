@@ -50,6 +50,14 @@ export async function adminDeleteBatterySwap(id) {
   });
 }
 
+export async function adminDeleteBatterySwaps(ids = []) {
+  if (!Array.isArray(ids) || ids.length === 0) return null;
+  return apiFetch(`/api/admin/battery-swaps/bulk-delete`, {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
 export async function adminBatterySwapsDaily({ days = 14 } = {}) {
   const qs = new URLSearchParams({ days: String(days) }).toString();
   return apiFetch(`/api/admin/battery-swaps/daily?${qs}`);

@@ -170,7 +170,7 @@ export default function RidersTable() {
             </button>
 
             <button
-              onClick={() => setDeleteItem({ bulk: true })}
+              onClick={() => setDeleteItem({ bulk: true, ids: [...selected] })}
               className="px-3 py-2 bg-red-600 text-white rounded"
             >
               Delete Selected
@@ -382,9 +382,11 @@ export default function RidersTable() {
 
       {deleteItem && (
         <DeleteModal
-          rider={deleteItem}
+          rider={deleteItem?.bulk ? null : deleteItem}
+          bulkIds={deleteItem?.bulk ? deleteItem.ids : []}
           close={() => setDeleteItem(null)}
           reload={loadRiders}
+          onBulkSuccess={() => setSelected([])}
         />
       )}
 

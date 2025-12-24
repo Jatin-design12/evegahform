@@ -8,6 +8,7 @@ import {
   adminBatterySwapsTopBatteries,
   adminBatterySwapsTopVehicles,
   adminDeleteBatterySwap,
+  adminDeleteBatterySwaps,
   adminListBatterySwaps,
   adminUpdateBatterySwap,
 } from "../../utils/adminBatterySwaps";
@@ -57,6 +58,7 @@ export default function AdminBatterySwapsPage() {
   const [detailsMode, setDetailsMode] = useState("history"); // history | view | edit
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsRows, setDetailsRows] = useState([]);
+  const [selectedSwapIds, setSelectedSwapIds] = useState([]);
 
   const closeDetails = () => {
     setDetailsOpen(false);
@@ -159,6 +161,12 @@ export default function AdminBatterySwapsPage() {
   useEffect(() => {
     setSwapPage(1);
   }, [swapSearch]);
+
+  useEffect(() => {
+    setSelectedSwapIds((prev) =>
+      prev.filter((id) => (batterySwaps || []).some((row) => String(row?.id) === id))
+    );
+  }, [batterySwaps]);
 
   useEffect(() => {
     if (!detailsOpen) return;
@@ -274,10 +282,54 @@ export default function AdminBatterySwapsPage() {
     try {
       await adminDeleteBatterySwap(id);
       setBatterySwaps((prev) => (prev || []).filter((r) => String(r?.id) !== String(id)));
+      setSelectedSwapIds((prev) => prev.filter((x) => String(x) !== String(id)));
       if (String(editingSwapId) === String(id)) cancelEditSwap();
       setSwapRefresh((x) => x + 1);
     } catch (e) {
       setError(String(e?.message || e || "Unable to delete swap"));
+    } finally {
+      setSwapBusy(false);
+    }
+  };
+
+  const toggleSwapSelection = (id) => {
+    const key = String(id);
+    setSelectedSwapIds((prev) => {
+      if (prev.includes(key)) {
+        return prev.filter((x) => x !== key);
+      }
+      return [...prev, key];
+    });
+  };
+
+  const toggleSelectCurrentPage = () => {
+    if (allPageSelected) {
+      setSelectedSwapIds((prev) => prev.filter((id) => !currentPageIds.includes(id)));
+      return;
+    }
+    setSelectedSwapIds((prev) => {
+      const next = new Set(prev);
+      currentPageIds.forEach((id) => next.add(id));
+      return Array.from(next);
+    });
+  };
+
+  const bulkDeleteSelected = async () => {
+    if (selectedSwapIds.length === 0) return;
+    const ok = window.confirm(`Delete ${selectedSwapIds.length} selected swap${
+      selectedSwapIds.length === 1 ? "" : "s"
+    }?`);
+    if (!ok) return;
+    setSwapBusy(true);
+    try {
+      await adminDeleteBatterySwaps(selectedSwapIds);
+      setBatterySwaps((prev) =>
+        (prev || []).filter((row) => !selectedSwapIds.includes(String(row?.id)))
+      );
+      setSelectedSwapIds([]);
+      setSwapRefresh((x) => x + 1);
+    } catch (e) {
+      setError(String(e?.message || e || "Unable to delete selected swaps"));
     } finally {
       setSwapBusy(false);
     }
@@ -300,6 +352,14 @@ export default function AdminBatterySwapsPage() {
     const start = (swapPage - 1) * swapPageSize;
     return (batterySwaps || []).slice(start, start + swapPageSize);
   }, [batterySwaps, swapPage, swapPageSize]);
+
+  const currentPageIds = useMemo(
+    () => pagedSwaps.map((row) => String(row?.id || "")),
+    [pagedSwaps]
+  );
+
+  const allPageSelected = currentPageIds.length > 0 && currentPageIds.every((id) => selectedSwapIds.includes(id));
+  const somePageSelected = currentPageIds.some((id) => selectedSwapIds.includes(id));
 
   return (
     <div className="flex min-h-screen bg-evegah-bg">
@@ -382,7 +442,7 @@ export default function AdminBatterySwapsPage() {
           <div className="p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <h2 className="text-base font-semibold text-evegah-text">Battery Swaps</h2>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center bg-gray-100 px-3 py-2 rounded-md w-full sm:w-72">
                 <Search size={16} className="text-gray-600" />
                 <input
@@ -391,6 +451,22 @@ export default function AdminBatterySwapsPage() {
                   onChange={(e) => setSwapSearch(e.target.value)}
                   className="bg-transparent outline-none ml-2 w-full"
                 />
+              </div>
+
+              <div className="flex items-center gap-2">
+                {selectedSwapIds.length > 0 ? (
+                  <span className="text-xs text-red-600">
+                    {selectedSwapIds.length} selected
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn-outline text-red-600"
+                  disabled={selectedSwapIds.length === 0 || swapBusy}
+                  onClick={bulkDeleteSelected}
+                >
+                  Delete Selected
+                </button>
               </div>
 
               <button
@@ -413,6 +489,14 @@ export default function AdminBatterySwapsPage() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 text-gray-600 uppercase text-xs">
                   <tr>
+                    <th className="px-4 py-3 text-left w-12">
+                      <input
+                        type="checkbox"
+                        checked={allPageSelected}
+                        onChange={toggleSelectCurrentPage}
+                        aria-label="Select swaps on this page"
+                      />
+                    </th>
                     <th className="px-4 py-3 text-left">Time</th>
                     <th className="px-4 py-3 text-left">Vehicle</th>
                     <th className="px-4 py-3 text-left">Battery Out</th>
@@ -425,6 +509,14 @@ export default function AdminBatterySwapsPage() {
                 <tbody>
                   {pagedSwaps.map((row) => (
                     <tr key={row?.id} className="border-t hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedSwapIds.includes(String(row?.id || ""))}
+                          onChange={() => toggleSwapSelection(row?.id)}
+                          aria-label={`Select swap ${row?.id}`}
+                        />
+                      </td>
                       <td className="px-4 py-3 whitespace-nowrap">{fmtSwapTime(row?.swapped_at || row?.created_at)}</td>
                       <td className="px-4 py-3 whitespace-nowrap">{row?.vehicle_number || "-"}</td>
                       <td className="px-4 py-3 whitespace-nowrap">{row?.battery_out || "-"}</td>

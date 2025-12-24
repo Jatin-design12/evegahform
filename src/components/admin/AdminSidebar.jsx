@@ -60,7 +60,7 @@ export default function AdminSidebar() {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="sm:hidden fixed top-4 left-4 z-30 w-11 h-11 rounded-2xl border border-evegah-border bg-white grid place-items-center text-gray-700"
+          className="sm:hidden fixed top-4 right-4 z-30 w-11 h-11 rounded-2xl border border-evegah-border bg-white grid place-items-center text-gray-700"
           aria-label="Open menu"
         >
           <Menu size={18} />
