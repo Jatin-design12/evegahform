@@ -19,7 +19,7 @@ const inactive =
 
 export default function EmployeeSidebar({ isMobile = false, onClose, onLogout }) {
   return (
-    <aside className="bg-white border-r border-gray-200 h-full flex flex-col">
+    <aside className="bg-white border-evegah-border h-full flex flex-col">
       {/* LOGO */}
       <div className="flex items-center justify-between p-5">
         <img src={logo} className="h-24" alt="eVEGAH" />
@@ -37,62 +37,33 @@ export default function EmployeeSidebar({ isMobile = false, onClose, onLogout })
 
       {/* NAV */}
       <nav className="px-3 space-y-1 flex-1 overflow-y-auto">
-        <NavLink
-          to="/employee/dashboard"
-          className={({ isActive }) =>
-            `${navItem} ${isActive ? active : inactive}`
-          }
-          onClick={() => onClose?.()}
-        >
-          <LayoutGrid size={18} />
-          Dashboard
-        </NavLink>
-        <NavLink
-        <NavLink
-          to="/employee/new-rider"
-          className={({ isActive }) =>
-          }
-          onClick={() => onClose?.()}
-          }
-        >
-          <UserPlus size={18} />
-          New Rider
-        </NavLink>
-
-        <NavLink
-          to="/employee/retain-rider"
-          className={({ isActive }) =>
-          className="flex items-center gap-2 text-red-600 text-sm"
-          onClick={onLogout}
-        >
-          <RotateCcw size={18} />
-          Retain Rider
-        </NavLink>
-
-        <NavLink
-          to="/employee/return-vehicle"
-          className={({ isActive }) =>
-            `${navItem} ${isActive ? active : inactive}`
-          }
-        >
-          <Bike size={18} />
-          Return Vehicle
-        </NavLink>
-
-        <NavLink
-          to="/employee/battery-swap"
-          className={({ isActive }) =>
-            `${navItem} ${isActive ? active : inactive}`
-          }
-        >
-          <BatteryCharging size={18} />
-          Battery Swap
-        </NavLink>
+        {[
+          ["/employee/dashboard", "Dashboard", LayoutGrid],
+          ["/employee/new-rider", "New Rider", UserPlus],
+          ["/employee/retain-rider", "Retain Rider", RotateCcw],
+          ["/employee/return-vehicle", "Return Vehicle", Bike],
+          ["/employee/battery-swap", "Battery Swap", BatteryCharging],
+        ].map(([to, label, Icon]) => (
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) =>
+              `${navItem} ${isActive ? active : inactive}`
+            }
+            onClick={() => onClose?.()}
+          >
+            <Icon size={18} />
+            {label}
+          </NavLink>
+        ))}
       </nav>
 
       {/* LOGOUT */}
       <div className="p-4">
-        <button className="flex items-center gap-2 text-red-600 text-sm">
+        <button
+          className="flex items-center gap-2 text-red-600 text-sm"
+          onClick={onLogout}
+        >
           <LogOut size={16} />
           Logout
         </button>
