@@ -3,29 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { Camera, Upload } from "lucide-react";
 import { lookupRider } from "../../../utils/riderLookup";
 import { useRiderForm } from "../RiderFormContext";
-      try {
-        stream = await tryGetStream({
-          video: { facingMode: { ideal: "user" } },
-          audio: false,
-        });
-      } catch (firstError) {
-        try {
-          stream = await tryGetStream({
-            video: { facingMode: { ideal: "environment" } },
-            audio: false,
-          });
-        } catch (secondError) {
-          try {
-            stream = await tryGetStream({
-              video: true,
-              audio: false,
-            });
-          } catch (thirdError) {
-            throw thirdError || secondError || firstError;
-          }
-        }
-      }
+
+const bannerStyles = {
   info: "bg-blue-50 border-blue-200 text-blue-700",
+  success: "bg-green-50 border-green-200 text-green-700",
+  warning: "bg-yellow-50 border-yellow-200 text-yellow-700",
   error: "bg-red-50 border-red-200 text-red-700",
 };
 
@@ -266,17 +248,24 @@ export default function Step1RiderDetails() {
       let stream;
       try {
         stream = await tryGetStream({
-          video: { facingMode: { ideal: "environment" } },
+          video: { facingMode: { ideal: "user" } },
           audio: false,
         });
       } catch (firstError) {
         try {
           stream = await tryGetStream({
-            video: true,
+            video: { facingMode: { ideal: "environment" } },
             audio: false,
           });
         } catch (secondError) {
-          throw secondError || firstError;
+          try {
+            stream = await tryGetStream({
+              video: true,
+              audio: false,
+            });
+          } catch (thirdError) {
+            throw thirdError || secondError || firstError;
+          }
         }
       }
 
