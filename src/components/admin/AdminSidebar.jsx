@@ -19,7 +19,6 @@ import { auth } from "../../config/firebase";
 import { clearAuthSession } from "../../utils/authSession";
 
 import logo from "../../assets/logo.png";
-import Watermark from "../Watermark";
 
 export default function AdminSidebar() {
   const navigate = useNavigate();
@@ -56,7 +55,6 @@ export default function AdminSidebar() {
 
   return (
     <>
-      <Watermark />
       {/* Mobile toggle (shows only when sidebar is closed) */}
       {!open ? (
         <button

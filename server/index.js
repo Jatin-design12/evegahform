@@ -1321,6 +1321,21 @@ app.post("/api/registrations/new-rider", async (req, res) => {
       return res.status(409).json({ error: "Selected battery is unavailable (already in an active rental)." });
     }
 
+    const existingRiderResult = await client.query(
+      `select id from public.riders where mobile = $1 limit 1`,
+      [mobile]
+    );
+    if (!existingRiderResult.rows?.length) {
+      const { rows: riderCountRows } = await client.query(
+        `select count(*)::int as count from public.riders`
+      );
+      const riderTotal = riderCountRows?.[0]?.count || 0;
+      if (riderTotal >= 5) {
+        await client.query("rollback");
+        return res.status(403).json({ error: "Rider limit reached (max 5 riders)." });
+      }
+    }
+
     // Upsert rider by mobile (and aadhaar when available)
     const riderResult = await client.query(
       `insert into public.riders (full_name, mobile, aadhaar, dob, gender, permanent_address, temporary_address, reference, status, meta)
@@ -1957,6 +1972,18 @@ app.post("/api/admin/users", requireAdmin, async (req, res) => {
   if (!password) return res.status(400).json({ error: "password required" });
 
   try {
+    if (role === "employee") {
+      const userList = await admin.auth().listUsers(1000);
+      const employeeCount = (userList.users || []).filter((u) => {
+        const existingRole = u.customClaims?.role || "employee";
+        return existingRole === "employee";
+      }).length;
+
+      if (employeeCount >= 2) {
+        return res.status(403).json({ error: "Employee limit reached (max 2 employees)." });
+      }
+    }
+
     const created = await admin.auth().createUser({
       email,
       password,
@@ -2214,6 +2241,13 @@ app.post("/api/battery-swaps", async (req, res) => {
   if (!body.battery_in) return res.status(400).json({ error: "battery_in required" });
 
   try {
+    const { rows: batteryCountRows } = await pool.query(
+      `select count(*)::int as count from public.battery_swaps`
+    );
+    if ((batteryCountRows?.[0]?.count || 0) >= 10) {
+      return res.status(403).json({ error: "Battery swap limit reached (max 10 swaps)." });
+    }
+
     const { rows } = await pool.query(
       `insert into public.battery_swaps
        (employee_uid, employee_email, vehicle_number, battery_out, battery_in, swapped_at, notes)

@@ -1,10 +1,8 @@
 import EmployeeTopbar from "../EmployeeTopbar";
-import Watermark from "../Watermark";
 
 export default function EmployeeLayout({ children }) {
   return (
-    <div className="relative z-10 flex h-screen flex-col bg-evegah-bg overflow-hidden">
-      <Watermark />
+    <div className="flex h-screen flex-col bg-evegah-bg overflow-hidden">
       <div className="sticky top-0 z-20">
         <EmployeeTopbar />
       </div>

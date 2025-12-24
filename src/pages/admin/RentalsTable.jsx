@@ -126,7 +126,7 @@ export default function RentalsTable() {
   }, [filteredRows]);
 
   return (
-    <div className="relative z-10 flex min-h-screen bg-gray-100">
+    <div className="flex min-h-screen bg-gray-100">
       <AdminSidebar />
       <main className="flex-1 p-8 space-y-6">
         <h1 className="text-2xl font-bold">Rentals</h1>

@@ -302,7 +302,7 @@ export default function AdminBatterySwapsPage() {
   }, [batterySwaps, swapPage, swapPageSize]);
 
   return (
-    <div className="relative z-10 flex min-h-screen bg-evegah-bg">
+    <div className="flex min-h-screen bg-evegah-bg">
       <AdminSidebar />
 
       <div className="flex-1 p-6">

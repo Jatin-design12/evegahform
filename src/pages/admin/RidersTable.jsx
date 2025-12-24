@@ -118,7 +118,7 @@ export default function RidersTable() {
   }
 
   return (
-    <div className="relative z-10 flex bg-gray-100 min-h-screen">
+    <div className="flex bg-gray-100 min-h-screen">
       <AdminSidebar />
 
       <main className="flex-1 p-6">
