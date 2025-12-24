@@ -3,22 +3,28 @@ import { useNavigate } from "react-router-dom";
 import { Camera, Upload } from "lucide-react";
 import { lookupRider } from "../../../utils/riderLookup";
 import { useRiderForm } from "../RiderFormContext";
-
-const sanitizeNumericInput = (value, maxLength) =>
-  value.replace(/\D/g, "").slice(0, maxLength);
-
-const isValidPhoneNumber = (value) => /^\d{10}$/.test(value);
-
-const isValidAadhaarNumber = (value) => {
-  if (value.length !== 12) return false;
-  if (!/^[2-9]\d{11}$/.test(value)) return false;
-  if (/^(\d)\1{11}$/.test(value)) return false;
-  return true;
-};
-
-const bannerStyles = {
-  success: "bg-green-50 border-green-200 text-green-700",
-  warning: "bg-yellow-50 border-yellow-200 text-yellow-700",
+      try {
+        stream = await tryGetStream({
+          video: { facingMode: { ideal: "user" } },
+          audio: false,
+        });
+      } catch (firstError) {
+        try {
+          stream = await tryGetStream({
+            video: { facingMode: { ideal: "environment" } },
+            audio: false,
+          });
+        } catch (secondError) {
+          try {
+            stream = await tryGetStream({
+              video: true,
+              audio: false,
+            });
+          } catch (thirdError) {
+            throw thirdError || secondError || firstError;
+          }
+        }
+      }
   info: "bg-blue-50 border-blue-200 text-blue-700",
   error: "bg-red-50 border-red-200 text-red-700",
 };
