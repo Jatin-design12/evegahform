@@ -20,9 +20,14 @@ async function apiFetch(path, options = {}) {
   return data;
 }
 
+function buildQuery(filters) {
+  const query = new URLSearchParams(filters || {}).toString();
+  return query ? `?${query}` : "";
+}
+
 export async function listRiderDrafts(employeeUid) {
-  const query = new URLSearchParams({ employeeUid }).toString();
-  return apiFetch(`/api/drafts?${query}`);
+  const suffix = buildQuery(employeeUid ? { employeeUid } : {});
+  return apiFetch(`/api/drafts${suffix}`);
 }
 
 export async function getRiderDraft(draftId) {

@@ -4,10 +4,12 @@ import { QRCodeCanvas } from "qrcode.react";
 import { useRiderForm } from "../RiderFormContext";
 import { apiFetch } from "../../../config/api";
 import { downloadRiderReceiptPdf } from "../../../utils/riderReceiptPdf";
+import useAuth from "../../../hooks/useAuth";
 
 export default function Step4Payment() {
   const { formData, resetForm } = useRiderForm();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [completed, setCompleted] = useState(false);
@@ -108,6 +110,8 @@ export default function Step4Payment() {
               agreement_accept_terms: Boolean(formData.agreementAcceptTerms),
               agreement_date: formData.agreementDate || null,
               issued_by_name: formData.issuedByName || null,
+              employee_uid: user?.uid || null,
+              employee_email: user?.email || null,
             },
           },
           documents: {

@@ -3,17 +3,7 @@ import AdminSidebar from "../../components/admin/AdminSidebar";
 import StatCard from "../../components/admin/StatCard";
 import { apiFetch } from "../../config/api";
 
-import {
-	Menu,
-	Search,
-	Moon,
-	Bell,
-	Globe,
-	Users,
-	Bike,
-	IndianRupee,
-	Clock,
-} from "lucide-react";
+import { Users, Bike, IndianRupee, Clock } from "lucide-react";
 
 import {
 	LineChart,
@@ -135,53 +125,10 @@ export default function AdminDashboard() {
 	}, [inr]);
 
 	return (
-		<div className="flex min-h-screen bg-evegah-bg">
+		<div className="relative z-10 flex min-h-screen bg-evegah-bg">
 			<AdminSidebar />
 
 			<div className="flex-1 p-6">
-				{/* Topbar */}
-				<div className="sticky top-0 z-10 mb-6 flex items-center justify-between gap-4 rounded-2xl border border-evegah-border bg-white/80 px-4 py-3 shadow-card backdrop-blur">
-					<div className="flex items-center gap-3 min-w-0">
-						<button
-							type="button"
-							className="w-10 h-10 rounded-xl border border-evegah-border bg-white grid place-items-center text-gray-700"
-							aria-label="Menu"
-						>
-							<Menu size={18} />
-						</button>
-
-						<div className="hidden sm:flex items-center gap-2 rounded-xl border border-evegah-border bg-white px-3 py-2 min-w-[320px]">
-							<Search size={16} className="text-gray-400" />
-							<input className="w-full bg-transparent text-sm outline-none" placeholder="Search" />
-						</div>
-					</div>
-
-					<div className="flex items-center gap-2">
-						<button
-							type="button"
-							className="w-10 h-10 rounded-xl grid place-items-center text-gray-600 hover:bg-gray-100"
-							aria-label="Theme"
-						>
-							<Moon size={18} />
-						</button>
-						<button
-							type="button"
-							className="w-10 h-10 rounded-xl grid place-items-center text-gray-600 hover:bg-gray-100"
-							aria-label="Notifications"
-						>
-							<Bell size={18} />
-						</button>
-						<button
-							type="button"
-							className="w-10 h-10 rounded-xl grid place-items-center text-gray-600 hover:bg-gray-100"
-							aria-label="Language"
-						>
-							<Globe size={18} />
-						</button>
-						<div className="w-10 h-10 rounded-xl bg-gray-200" aria-hidden="true" />
-					</div>
-				</div>
-
 				<div className="mb-6">
 					<h1 className="text-2xl font-semibold text-evegah-text">Dashboard</h1>
 					<p className="text-sm text-evegah-muted">Overview of riders, rentals, and revenue.</p>
@@ -239,7 +186,7 @@ export default function AdminDashboard() {
 							</button>
 						</div>
 
-						<div className="text-blue-600">
+						<div className="text-blue-600">	
 							<ResponsiveContainer width="100%" height={260}>
 								<BarChart data={rentalsData}>
 									<Bar dataKey="rentals" fill="currentColor" radius={[8, 8, 0, 0]} />
@@ -254,7 +201,7 @@ export default function AdminDashboard() {
 
 					<div className="bg-evegah-card border border-evegah-border shadow-card rounded-2xl p-6">
 						<div className="flex items-center justify-between gap-4 mb-4">
-							<h2 className="text-base font-semibold text-evegah-text">Recent Users</h2>
+							<h2 className="text-base font-semibold text-evegah-text">Recent Rider</h2>
 							<span className="text-xs text-evegah-muted">History</span>
 						</div>
 

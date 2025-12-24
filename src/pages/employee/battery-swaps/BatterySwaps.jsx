@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import EmployeeLayout from "../../../components/layouts/EmployeeLayout";
 import useAuth from "../../../hooks/useAuth";
@@ -8,8 +8,12 @@ import {
   listBatterySwaps,
 } from "../../../utils/batterySwaps";
 import { BATTERY_ID_OPTIONS } from "../../../utils/batteryIds";
+import { VEHICLE_ID_OPTIONS } from "../../../utils/vehicleIds";
+import { apiFetch } from "../../../config/api";
 
 const normalizeId = (value) => String(value || "").trim().toUpperCase();
+const normalizeForCompare = (value) =>
+  String(value || "").replace(/[^a-z0-9]+/gi, "").toUpperCase();
 
 const bannerStyles = {
   success: "bg-green-50 border-green-200 text-green-700",
@@ -56,6 +60,9 @@ export default function BatterySwaps() {
   const [usageLoading, setUsageLoading] = useState(false);
 
   const [form, setForm] = useState({
+    riderId: "",
+    riderName: "",
+    riderPhone: "",
     vehicleNumber: "",
     batteryOut: "",
     batteryIn: "",
@@ -64,6 +71,28 @@ export default function BatterySwaps() {
 
   const [errors, setErrors] = useState({});
   const [banner, setBanner] = useState(null);
+
+  const riderDropdownRef = useRef(null);
+  const riderQueryRef = useRef(null);
+  const vehicleDropdownRef = useRef(null);
+  const vehicleQueryRef = useRef(null);
+  const batteryOutDropdownRef = useRef(null);
+  const batteryInDropdownRef = useRef(null);
+  const batteryOutQueryRef = useRef(null);
+  const batteryInQueryRef = useRef(null);
+
+  const [riderOptions, setRiderOptions] = useState([]);
+  const [riderLoading, setRiderLoading] = useState(true);
+  const [riderQuery, setRiderQuery] = useState("");
+  const [riderDropdownOpen, setRiderDropdownOpen] = useState(false);
+
+  const [vehicleDropdownOpen, setVehicleDropdownOpen] = useState(false);
+  const [vehicleQuery, setVehicleQuery] = useState("");
+
+  const [batteryOutDropdownOpen, setBatteryOutDropdownOpen] = useState(false);
+  const [batteryOutQuery, setBatteryOutQuery] = useState("");
+  const [batteryInDropdownOpen, setBatteryInDropdownOpen] = useState(false);
+  const [batteryInQuery, setBatteryInQuery] = useState("");
 
   const canLoad = useMemo(() => !loading && Boolean(user?.uid), [loading, user?.uid]);
 
@@ -115,14 +144,128 @@ export default function BatterySwaps() {
     };
   }, [rows, kpiPeriod]);
 
+  useEffect(() => {
+    let mounted = true;
+    setRiderLoading(true);
+    apiFetch("/api/riders?limit=200")
+      .then((result) => {
+        if (!mounted) return;
+        setRiderOptions(Array.isArray(result?.data) ? result.data : []);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setRiderOptions([]);
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setRiderLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      !vehicleDropdownOpen &&
+      !batteryOutDropdownOpen &&
+      !batteryInDropdownOpen &&
+      !riderDropdownOpen
+    ) {
+      return undefined;
+    }
+
+    const onMouseDown = (event) => {
+      const target = event.target;
+      if (vehicleDropdownOpen && vehicleDropdownRef.current && !vehicleDropdownRef.current.contains(target)) {
+        setVehicleDropdownOpen(false);
+      }
+      if (batteryOutDropdownOpen && batteryOutDropdownRef.current && !batteryOutDropdownRef.current.contains(target)) {
+        setBatteryOutDropdownOpen(false);
+      }
+      if (batteryInDropdownOpen && batteryInDropdownRef.current && !batteryInDropdownRef.current.contains(target)) {
+        setBatteryInDropdownOpen(false);
+      }
+      if (riderDropdownOpen && riderDropdownRef.current && !riderDropdownRef.current.contains(target)) {
+        setRiderDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", onMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+    };
+  }, [
+    vehicleDropdownOpen,
+    batteryOutDropdownOpen,
+    batteryInDropdownOpen,
+    riderDropdownOpen,
+  ]);
+
+  const filteredVehicleIds = useMemo(() => {
+    const query = String(vehicleQuery || "").trim().toUpperCase();
+    if (!query) return VEHICLE_ID_OPTIONS;
+    return VEHICLE_ID_OPTIONS.filter((id) => id.includes(query));
+  }, [vehicleQuery]);
+
+  const filteredBatteryOutIds = useMemo(() => {
+    const query = String(batteryOutQuery || "").trim().toUpperCase();
+    if (!query) return BATTERY_ID_OPTIONS;
+    return BATTERY_ID_OPTIONS.filter((id) => id.includes(query));
+  }, [batteryOutQuery]);
+
+  const filteredBatteryInIds = useMemo(() => {
+    const query = String(batteryInQuery || "").trim().toUpperCase();
+    if (!query) return BATTERY_ID_OPTIONS;
+    return BATTERY_ID_OPTIONS.filter((id) => id.includes(query));
+  }, [batteryInQuery]);
+
+  const filteredRiders = useMemo(() => {
+    const query = String(riderQuery || "").trim().toLowerCase();
+    if (!query) return riderOptions;
+    return (riderOptions || []).filter((r) => {
+      const haystack = `${String(r?.full_name || "").toLowerCase()} ${String(r?.mobile || "").toLowerCase()} ${String(r?.aadhaar || "").toLowerCase()}`;
+      return haystack.includes(query);
+    });
+  }, [riderOptions, riderQuery]);
+
+  const selectRider = (rider) => {
+    setForm((prev) => ({
+      ...prev,
+      riderId: rider?.id || "",
+      riderName: rider?.full_name || "",
+      riderPhone: rider?.mobile || "",
+    }));
+    setRiderDropdownOpen(false);
+    setRiderQuery("");
+  };
+
+  const selectVehicleId = (id) => {
+    setForm((prev) => ({ ...prev, vehicleNumber: id }));
+    setVehicleDropdownOpen(false);
+    setVehicleQuery("");
+  };
+
+  const selectBatteryOutId = (id) => {
+    setForm((prev) => ({ ...prev, batteryOut: id }));
+    setBatteryOutDropdownOpen(false);
+    setBatteryOutQuery("");
+  };
+
+  const selectBatteryInId = (id) => {
+    setForm((prev) => ({ ...prev, batteryIn: id }));
+    setBatteryInDropdownOpen(false);
+    setBatteryInQuery("");
+  };
+
   const loadAll = async () => {
     if (!user?.uid) return;
     try {
       setRowsLoading(true);
       setUsageLoading(true);
       const [swapList, usage] = await Promise.all([
-        listBatterySwaps(user.uid),
-        getBatteryUsage(user.uid),
+        listBatterySwaps(),
+        getBatteryUsage(),
       ]);
       setRows(swapList || []);
       setUsageRows(usage || []);
@@ -178,12 +321,20 @@ export default function BatterySwaps() {
       });
 
       setBanner({ type: "success", message: "Battery swap recorded." });
-      setForm({ vehicleNumber: "", batteryOut: "", batteryIn: "", notes: "" });
+      setForm({
+        riderId: "",
+        riderName: "",
+        riderPhone: "",
+        vehicleNumber: "",
+        batteryOut: "",
+        batteryIn: "",
+        notes: "",
+      });
 
       // Optimistic prepend, then refresh usage
       setRows((prev) => [created, ...prev]);
       setUsageLoading(true);
-      const usage = await getBatteryUsage(user.uid);
+      const usage = await getBatteryUsage();
       setUsageRows(usage || []);
     } catch (e) {
       setBanner({
@@ -266,63 +417,297 @@ export default function BatterySwaps() {
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div>
+              <label className="label">Rider (optional)</label>
+              <div ref={riderDropdownRef} className="relative">
+                <button
+                  type="button"
+                  className="select flex items-center justify-between gap-3"
+                  aria-haspopup="listbox"
+                  aria-expanded={riderDropdownOpen}
+                  onClick={() => {
+                    setRiderDropdownOpen((prev) => {
+                      const next = !prev;
+                      if (!prev && next) {
+                        setTimeout(() => riderQueryRef.current?.focus(), 0);
+                      }
+                      return next;
+                    });
+                  }}
+                >
+                  <span className={form.riderName ? "text-evegah-text" : "text-gray-500"}>
+                    {form.riderName
+                      ? `${form.riderName} • ${form.riderPhone || "—"}`
+                      : riderLoading
+                        ? "Loading riders..."
+                        : "Select rider"}
+                  </span>
+                  <span className="text-gray-400">▾</span>
+                </button>
+
+                {riderDropdownOpen ? (
+                  <div className="absolute z-20 mt-2 w-full rounded-xl border border-evegah-border bg-white shadow-card p-2">
+                    <input
+                      ref={riderQueryRef}
+                      className="input"
+                      placeholder="Search rider name / phone..."
+                      value={riderQuery}
+                      onChange={(e) => setRiderQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          setRiderDropdownOpen(false);
+                        }
+                      }}
+                    />
+                    <div className="mt-2 max-h-48 overflow-y-auto" role="listbox">
+                      {riderLoading ? (
+                        <div className="px-3 py-2 text-sm text-gray-500">Loading riders...</div>
+                      ) : filteredRiders.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-gray-500">No matching riders.</div>
+                      ) : (
+                        filteredRiders.map((rider) => {
+                          const label = rider?.full_name || rider?.mobile || "Unknown rider";
+                          const sub = rider?.mobile || rider?.aadhaar || "";
+                          const selected = normalizeForCompare(rider?.id) === normalizeForCompare(form.riderId);
+                          return (
+                            <button
+                              key={rider.id ?? `${label}-${sub}`}
+                              type="button"
+                              className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
+                                selected ? "bg-gray-100" : "hover:bg-gray-50"
+                              }`}
+                              onClick={() => selectRider(rider)}
+                            >
+                              <p className="text-sm font-medium text-evegah-text">{label}</p>
+                              <p className="text-xs text-gray-500">{sub || "—"}</p>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
             <div>
               <label className="label">Vehicle Number *</label>
-              <input
-                className="input"
-                placeholder="GJ01AB1234"
-                value={form.vehicleNumber}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, vehicleNumber: e.target.value }))
-                }
-                onBlur={(e) =>
-                  setForm((p) => ({ ...p, vehicleNumber: normalizeId(e.target.value) }))
-                }
-              />
+              <div ref={vehicleDropdownRef} className="relative">
+                <button
+                  type="button"
+                  className="select flex items-center justify-between gap-3"
+                  aria-haspopup="listbox"
+                  aria-expanded={vehicleDropdownOpen}
+                  onClick={() => {
+                    setVehicleDropdownOpen((prev) => {
+                      const next = !prev;
+                      if (!prev && next) {
+                        setTimeout(() => vehicleQueryRef.current?.focus(), 0);
+                      }
+                      return next;
+                    });
+                  }}
+                >
+                  <span className={form.vehicleNumber ? "text-evegah-text" : "text-gray-500"}>
+                    {form.vehicleNumber || "Select E-bike ID"}
+                  </span>
+                  <span className="text-gray-400">▾</span>
+                </button>
+
+                {vehicleDropdownOpen ? (
+                  <div className="absolute z-20 mt-2 w-full rounded-xl border border-evegah-border bg-white shadow-card p-2">
+                    <input
+                      ref={vehicleQueryRef}
+                      className="input"
+                      placeholder="Search vehicle id..."
+                      value={vehicleQuery}
+                      onChange={(e) => setVehicleQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          setVehicleDropdownOpen(false);
+                        }
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          if (filteredVehicleIds.length === 1) {
+                            selectVehicleId(filteredVehicleIds[0]);
+                          }
+                        }
+                      }}
+                    />
+                    <div className="mt-2 max-h-48 overflow-y-auto" role="listbox">
+                      {filteredVehicleIds.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-gray-500">No matching vehicle.</div>
+                      ) : (
+                        filteredVehicleIds.map((id) => {
+                          const selected = normalizeForCompare(id) === normalizeForCompare(form.vehicleNumber);
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
+                                selected ? "bg-gray-100" : "hover:bg-gray-50"
+                              }`}
+                              onClick={() => selectVehicleId(id)}
+                            >
+                              {id}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
               {errors.vehicleNumber && <p className="error">{errors.vehicleNumber}</p>}
             </div>
 
             <div>
-              <label className="label">Battery OUT *</label>
-              <input
-                className="input"
-                placeholder="BAT-001"
-                list="ev-egah-battery-ids"
-                value={form.batteryOut}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, batteryOut: e.target.value }))
-                }
-                onBlur={(e) =>
-                  setForm((p) => ({ ...p, batteryOut: normalizeId(e.target.value) }))
-                }
-              />
-              {errors.batteryOut && <p className="error">{errors.batteryOut}</p>}
-            </div>
+              <label className="label">Battery REMOVE *</label>
+              <div ref={batteryOutDropdownRef} className="relative">
+                <button
+                  type="button"
+                  className="select flex items-center justify-between gap-3"
+                  aria-haspopup="listbox"
+                  aria-expanded={batteryOutDropdownOpen}
+                  onClick={() => {
+                    setBatteryOutDropdownOpen((prev) => {
+                      const next = !prev;
+                      if (!prev && next) {
+                        setTimeout(() => batteryOutQueryRef.current?.focus(), 0);
+                      }
+                      return next;
+                    });
+                  }}
+                >
+                  <span className={form.batteryOut ? "text-evegah-text" : "text-gray-500"}>
+                    {form.batteryOut || "Select battery out"}
+                  </span>
+                  <span className="text-gray-400">▾</span>
+                </button>
 
-            <div>
-              <label className="label">Battery IN *</label>
-              <input
-                className="input"
-                placeholder="BAT-002"
-                list="ev-egah-battery-ids"
-                value={form.batteryIn}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, batteryIn: e.target.value }))
-                }
-                onBlur={(e) =>
-                  setForm((p) => ({ ...p, batteryIn: normalizeId(e.target.value) }))
-                }
-              />
-              {errors.batteryIn && <p className="error">{errors.batteryIn}</p>}
+                {batteryOutDropdownOpen ? (
+                  <div className="absolute z-20 mt-2 w-full rounded-xl border border-evegah-border bg-white shadow-card p-2">
+                    <input
+                      ref={batteryOutQueryRef}
+                      className="input"
+                      placeholder="Search battery id..."
+                      value={batteryOutQuery}
+                      onChange={(e) => setBatteryOutQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          setBatteryOutDropdownOpen(false);
+                        }
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          if (filteredBatteryOutIds.length === 1) {
+                            selectBatteryOutId(filteredBatteryOutIds[0]);
+                          }
+                        }
+                      }}
+                    />
+                    <div className="mt-2 max-h-48 overflow-y-auto" role="listbox">
+                      {filteredBatteryOutIds.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-gray-500">No battery matches.</div>
+                      ) : (
+                        filteredBatteryOutIds.map((id) => {
+                          const selected = normalizeForCompare(id) === normalizeForCompare(form.batteryOut);
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
+                                selected ? "bg-gray-100" : "hover:bg-gray-50"
+                              }`}
+                              onClick={() => selectBatteryOutId(id)}
+                            >
+                              {id}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              {errors.batteryOut && <p className="error">{errors.batteryOut}</p>}
             </div>
           </div>
 
-          <datalist id="ev-egah-battery-ids">
-            {BATTERY_ID_OPTIONS.map((id) => (
-              <option key={id} value={id} />
-            ))}
-          </datalist>
+          <div className="mt-4">
+            <label className="label">Battery ADD *</label>
+            <div ref={batteryInDropdownRef} className="relative">
+              <button
+                type="button"
+                className="select flex items-center justify-between gap-3"
+                aria-haspopup="listbox"
+                aria-expanded={batteryInDropdownOpen}
+                onClick={() => {
+                  setBatteryInDropdownOpen((prev) => {
+                    const next = !prev;
+                    if (!prev && next) {
+                      setTimeout(() => batteryInQueryRef.current?.focus(), 0);
+                    }
+                    return next;
+                  });
+                }}
+              >
+                <span className={form.batteryIn ? "text-evegah-text" : "text-gray-500"}>
+                  {form.batteryIn || "Select battery in"}
+                </span>
+                <span className="text-gray-400">▾</span>
+              </button>
+
+              {batteryInDropdownOpen ? (
+                <div className="absolute z-20 mt-2 w-full rounded-xl border border-evegah-border bg-white shadow-card p-2">
+                  <input
+                    ref={batteryInQueryRef}
+                    className="input"
+                    placeholder="Search battery id..."
+                    value={batteryInQuery}
+                    onChange={(e) => setBatteryInQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        setBatteryInDropdownOpen(false);
+                      }
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (filteredBatteryInIds.length === 1) {
+                          selectBatteryInId(filteredBatteryInIds[0]);
+                        }
+                      }
+                    }}
+                  />
+                  <div className="mt-2 max-h-48 overflow-y-auto" role="listbox">
+                    {filteredBatteryInIds.length === 0 ? (
+                      <div className="px-3 py-2 text-sm text-gray-500">No battery matches.</div>
+                    ) : (
+                      filteredBatteryInIds.map((id) => {
+                        const selected = normalizeForCompare(id) === normalizeForCompare(form.batteryIn);
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
+                              selected ? "bg-gray-100" : "hover:bg-gray-50"
+                            }`}
+                            onClick={() => selectBatteryInId(id)}
+                          >
+                            {id}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            {errors.batteryIn && <p className="error">{errors.batteryIn}</p>}
+          </div>
 
           <div className="mt-4">
             <label className="label">Notes</label>

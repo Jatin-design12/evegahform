@@ -10,8 +10,9 @@ const sanitizeNumericInput = (value, maxLength) =>
 
 export default function ReturnVehicle() {
   const [mobile, setMobile] = useState("");
-  const [vehicleNumber, setVehicleNumber] = useState("");
+  const [batteryId, setBatteryId] = useState("");
   const [conditionNotes, setConditionNotes] = useState("");
+  const [feedback, setFeedback] = useState("");
   const [photos, setPhotos] = useState([]);
   const [photoInputKey, setPhotoInputKey] = useState(0);
 
@@ -22,7 +23,7 @@ export default function ReturnVehicle() {
   const [rental, setRental] = useState(null);
 
   const mobileDigits = useMemo(() => sanitizeNumericInput(mobile, 10), [mobile]);
-  const vehicleText = String(vehicleNumber || "").trim();
+  const batteryText = String(batteryId || "").trim();
 
   const shortId = (value) => {
     const s = String(value || "").trim();
@@ -36,8 +37,8 @@ export default function ReturnVehicle() {
     setSubmitError("");
     setRental(null);
 
-    if (!mobileDigits && !vehicleText) {
-      setSearchError("Enter rider mobile number or vehicle number.");
+    if (!mobileDigits && !batteryText) {
+      setSearchError("Enter rider mobile number or battery id.");
       return;
     }
 
@@ -45,7 +46,7 @@ export default function ReturnVehicle() {
     try {
       const params = new URLSearchParams();
       if (mobileDigits) params.set("mobile", mobileDigits);
-      if (vehicleText) params.set("vehicle", vehicleText);
+      if (batteryText) params.set("battery", batteryText);
       const found = await apiFetch(`/api/rentals/active?${params.toString()}`);
       if (!found) {
         setSearchError("No active rental found for the given details.");
@@ -80,6 +81,9 @@ export default function ReturnVehicle() {
       const form = new FormData();
       form.set("rentalId", rental.id);
       form.set("conditionNotes", String(conditionNotes).trim());
+      if (String(feedback || "").trim()) {
+        form.set("feedback", String(feedback).trim());
+      }
       (Array.isArray(photos) ? photos : []).forEach((file) => {
         form.append("photos", file);
       });
@@ -95,10 +99,11 @@ export default function ReturnVehicle() {
       // Reset
       setRental(null);
       setConditionNotes("");
+      setFeedback("");
       setPhotos([]);
       setPhotoInputKey((k) => k + 1);
       setMobile("");
-      setVehicleNumber("");
+      setBatteryId("");
     } catch (e) {
       setSubmitError(String(e?.message || e || "Unable to submit return"));
     } finally {
@@ -144,12 +149,12 @@ export default function ReturnVehicle() {
             </div>
 
             <div>
-              <label className="label">Vehicle Number</label>
+              <label className="label">Battery ID</label>
               <input
                 className="input"
-                placeholder="Enter vehicle number"
-                value={vehicleNumber}
-                onChange={(e) => setVehicleNumber(e.target.value)}
+                placeholder="Enter battery id"
+                value={batteryId}
+                onChange={(e) => setBatteryId(e.target.value)}
               />
             </div>
 
@@ -176,8 +181,8 @@ export default function ReturnVehicle() {
                   <p className="mt-0.5 text-xs text-gray-500">Rental: {shortId(rental.id)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Vehicle</p>
-                  <p className="text-sm text-evegah-text font-medium">{rental.vehicle_number || "-"}</p>
+                  <p className="text-xs text-gray-500">Battery ID</p>
+                  <p className="text-sm text-evegah-text font-medium">{rental.current_battery_id || rental.battery_id || "-"}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Start</p>
@@ -208,6 +213,8 @@ export default function ReturnVehicle() {
               <input
                 key={photoInputKey}
                 type="file"
+                accept="image/*"
+                capture="environment"
                 multiple
                 className="input py-2"
                 onChange={(e) => setPhotos(Array.from(e.target.files || []))}
@@ -253,6 +260,17 @@ export default function ReturnVehicle() {
                 placeholder="Describe scratches, damages, or issues..."
                 value={conditionNotes}
                 onChange={(e) => setConditionNotes(e.target.value)}
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="label">Feedback (optional)</label>
+              <textarea
+                className="textarea"
+                rows={3}
+                placeholder="Any rider feedback or notes..."
+                value={feedback}
+                onChange={(e) => setFeedback(e.target.value)}
               />
             </div>
           </div>

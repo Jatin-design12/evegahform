@@ -1,38 +1,23 @@
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+import { apiFetch } from "../config/api";
 
-async function apiFetch(path, options = {}) {
-  const url = API_BASE ? `${API_BASE}${path}` : path;
-  const res = await fetch(url, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
-
-  if (res.status === 204) return null;
-
-  const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    const message = data?.error || `Request failed: ${res.status}`;
-    throw new Error(message);
-  }
-  return data;
+function buildQuery(filters) {
+  const query = new URLSearchParams(filters || {}).toString();
+  return query ? `?${query}` : "";
 }
 
 export async function listBatterySwaps(employeeUid) {
-  const query = new URLSearchParams({ employeeUid }).toString();
-  return apiFetch(`/api/battery-swaps?${query}`);
+  const suffix = buildQuery(employeeUid ? { employeeUid } : {});
+  return apiFetch(`/api/battery-swaps${suffix}`);
 }
 
 export async function createBatterySwap(payload) {
   return apiFetch(`/api/battery-swaps`, {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: payload,
   });
 }
 
 export async function getBatteryUsage(employeeUid) {
-  const query = new URLSearchParams({ employeeUid }).toString();
-  return apiFetch(`/api/battery-swaps/usage?${query}`);
+  const suffix = buildQuery(employeeUid ? { employeeUid } : {});
+  return apiFetch(`/api/battery-swaps/usage${suffix}`);
 }

@@ -46,6 +46,15 @@ export default function RentalsTable() {
     return `₹${safe.toLocaleString("en-IN")}`;
   };
 
+  const shortId = (value) => {
+    const s = String(value || "").trim();
+    if (!s) return "-";
+    const base = s.split("-")[0] || s;
+    if (base && base.length >= 6) return `EVEGAH-${base.toUpperCase()}`;
+    if (s.length <= 14) return s;
+    return `${s.slice(0, 8)}…${s.slice(-4)}`;
+  };
+
   const parseMaybeJson = (value) => {
     if (!value) return null;
     if (typeof value === "object") return value;
@@ -117,7 +126,7 @@ export default function RentalsTable() {
   }, [filteredRows]);
 
   return (
-    <div className="flex min-h-screen bg-gray-100">
+    <div className="relative z-10 flex min-h-screen bg-gray-100">
       <AdminSidebar />
       <main className="flex-1 p-8 space-y-6">
         <h1 className="text-2xl font-bold">Rentals</h1>
@@ -220,7 +229,7 @@ export default function RentalsTable() {
                     <td className="px-4 py-2 text-right font-semibold">{formatINR(r.total_value)}</td>
                     <td className="px-4 py-2">{r.payment_mode_display}</td>
                     <td className="px-4 py-2">
-                      <span className="text-xs text-gray-600">{String(r.id || "-")}</span>
+                      <span className="text-xs text-gray-600">{shortId(r.id)}</span>
                     </td>
                   </tr>
                 );

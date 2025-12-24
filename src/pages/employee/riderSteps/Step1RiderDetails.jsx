@@ -29,6 +29,7 @@ export default function Step1RiderDetails() {
   const navigate = useNavigate();
 
   const governmentIdInputRef = useRef(null);
+  const riderPhotoInputRef = useRef(null);
   const preRidePhotosInputRef = useRef(null);
   const riderVideoRef = useRef(null);
   const riderStreamRef = useRef(null);
@@ -200,8 +201,47 @@ export default function Step1RiderDetails() {
     setCameraActive(false);
   };
 
+  const describeCameraError = (error) => {
+    const name = error?.name;
+
+    if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+      return "Camera permission was denied. Please allow camera access in your browser settings and try again.";
+    }
+    if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+      return "No camera device was found. If you're on a PC without a webcam (or using Remote Desktop), upload a photo instead.";
+    }
+    if (name === "NotReadableError" || name === "TrackStartError") {
+      return "Camera is already in use by another app/tab. Close other apps using the camera and try again.";
+    }
+    if (name === "OverconstrainedError") {
+      return "Your camera doesn't support the requested settings. Trying a compatible mode may help.";
+    }
+    if (name === "SecurityError") {
+      return "Camera access is blocked due to browser security settings.";
+    }
+
+    return error?.message || "Unable to access camera. Please allow permission.";
+  };
+
   const startRiderCamera = async () => {
     setCameraError("");
+
+    // Most browsers require HTTPS (secure context) for camera access.
+    // localhost/loopback hosts are treated as secure.
+    const host =
+      typeof window !== "undefined" ? String(window.location?.hostname || "") : "";
+    const isLoopbackHost =
+      host === "localhost" || host === "127.0.0.1" || host === "::1";
+    if (
+      typeof window !== "undefined" &&
+      window.isSecureContext === false &&
+      !isLoopbackHost
+    ) {
+      setCameraError(
+        "Camera requires HTTPS. Please open this site using https:// (or use localhost during development)."
+      );
+      return;
+    }
 
     if (!navigator?.mediaDevices?.getUserMedia) {
       setCameraError("Camera is not supported in this browser.");
@@ -209,23 +249,42 @@ export default function Step1RiderDetails() {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
-        audio: false,
-      });
+      // Stop any previous stream before starting a new one.
+      stopRiderCamera();
+
+      const tryGetStream = async (constraints) => {
+        return await navigator.mediaDevices.getUserMedia(constraints);
+      };
+
+      // Prefer the front camera, but fall back if constraints aren't supported.
+      let stream;
+      try {
+        stream = await tryGetStream({
+          video: { facingMode: { ideal: "user" } },
+          audio: false,
+        });
+      } catch (firstError) {
+        try {
+          stream = await tryGetStream({ video: true, audio: false });
+        } catch (secondError) {
+          throw secondError || firstError;
+        }
+      }
 
       riderStreamRef.current = stream;
       setCameraActive(true);
 
       if (riderVideoRef.current) {
         riderVideoRef.current.srcObject = stream;
-        await riderVideoRef.current.play();
+        try {
+          await riderVideoRef.current.play();
+        } catch {
+          // Some browsers may block play() despite autoPlay/muted; stream can still be active.
+        }
       }
     } catch (e) {
       setCameraActive(false);
-      setCameraError(
-        e?.message || "Unable to access camera. Please allow permission."
-      );
+      setCameraError(describeCameraError(e));
     }
   };
 
@@ -696,6 +755,18 @@ export default function Step1RiderDetails() {
               </div>
             ) : (
               <div className="mt-3 rounded-xl border border-evegah-border bg-white p-4">
+                <input
+                  ref={riderPhotoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleImagePick("riderPhoto", file);
+                    e.target.value = "";
+                  }}
+                />
+
                 {cameraActive ? (
                   <div className="space-y-3">
                     <video
@@ -743,6 +814,15 @@ export default function Step1RiderDetails() {
                       >
                         <span className="ml-2">Start Camera</span>
                         
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn-outline"
+                        onClick={() => riderPhotoInputRef.current?.click()}
+                      >
+                        <Upload size={16} />
+                        <span className="ml-2">Upload Photo</span>
                       </button>
                     </div>
                     <p className="text-xs text-gray-500 mt-2">

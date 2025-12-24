@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, apiUrl } from "../../config/api";
+import { downloadRiderReceiptPdf } from "../../utils/riderReceiptPdf";
+import { Download } from "lucide-react";
 
 export default function RiderProfileModal({ rider, close }) {
   const [rides, setRides] = useState([]);
@@ -12,6 +14,8 @@ export default function RiderProfileModal({ rider, close }) {
   const [error, setError] = useState("");
   const [imagePreview, setImagePreview] = useState(null);
   const [activeTab, setActiveTab] = useState("details");
+  const [downloadingReceipt, setDownloadingReceipt] = useState(false);
+  const [receiptError, setReceiptError] = useState("");
   const modalScrollRef = useRef(null);
 
   useEffect(() => {
@@ -148,6 +152,85 @@ export default function RiderProfileModal({ rider, close }) {
     const fromMeta = String(riderMeta?.rider_code || "").trim();
     return fromMeta;
   }, [rider?.rider_code, riderMeta?.rider_code]);
+
+  const handleDownloadReceipt = useCallback(async (rentalOverride) => {
+    if (downloadingReceipt) return;
+    setReceiptError("");
+
+    const rental = rentalOverride || currentRide || latestRide;
+    if (!rider?.id) {
+      setReceiptError("Rider information is missing.");
+      return;
+    }
+
+    if (!rental?.id) {
+      setReceiptError("Ride information is missing.");
+      return;
+    }
+
+    setDownloadingReceipt(true);
+    try {
+      const rentalMeta = parseMaybeJson(rental?.meta) || {};
+
+      const receiptFormData = {
+        // Rider
+        name: rider?.full_name,
+        phone: rider?.mobile,
+        aadhaar: rider?.aadhaar,
+        dob: rider?.dob,
+        gender: rider?.gender,
+        operationalZone: normalizeZone(rentalMeta?.zone) || normalizeZone(riderMeta?.zone) || "",
+        reference: rider?.reference,
+        permanentAddress: rider?.permanent_address,
+        temporaryAddress: rider?.temporary_address,
+
+        // Rental
+        rentalStart: rental?.start_time,
+        rentalEnd: rental?.end_time,
+        rentalPackage: rental?.rental_package,
+        bikeModel: rental?.bike_model,
+        bikeId: rental?.bike_id,
+        batteryId: rental?.battery_id,
+        vehicleNumber: rental?.vehicle_number,
+        accessories: Array.isArray(rental?.accessories) ? rental.accessories : [],
+        otherAccessories: rental?.other_accessories,
+
+        // Payment
+        paymentMode: rental?.payment_mode,
+        rentalAmount: rental?.rental_amount,
+        securityDeposit: rental?.deposit_amount,
+        totalAmount: rental?.total_amount,
+        amountPaid: rental?.total_amount,
+
+        // Agreement
+        agreementAccepted: Boolean(rentalMeta?.agreement_accepted),
+        agreementDate: rentalMeta?.agreement_date,
+        issuedByName: rentalMeta?.issued_by_name,
+      };
+
+      await downloadRiderReceiptPdf({
+        formData: receiptFormData,
+        registration: {
+          riderId: rider?.id,
+          rentalId: rental?.id,
+          riderCode,
+        },
+      });
+    } catch (e) {
+      setReceiptError(String(e?.message || e || "Unable to generate receipt"));
+    } finally {
+      setDownloadingReceipt(false);
+    }
+  }, [
+    downloadingReceipt,
+    rider,
+    currentRide,
+    latestRide,
+    riderCode,
+    riderMeta,
+    normalizeZone,
+    parseMaybeJson,
+  ]);
 
   const submissionCode = useMemo(() => {
     const base = String(currentRide?.id || rider?.id || "").split("-")[0] || "";
@@ -290,6 +373,7 @@ export default function RiderProfileModal({ rider, close }) {
                   {fmtDateTime(latestRide?.start_time || rider?.created_at)}
                 </div>
               </div>
+
               <button
                 type="button"
                 onClick={close}
@@ -335,6 +419,12 @@ export default function RiderProfileModal({ rider, close }) {
           </div>
 
           <div className="p-5 space-y-8">
+            {receiptError ? (
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {receiptError}
+              </div>
+            ) : null}
+
             {error ? (
               <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                 {error}
@@ -389,12 +479,14 @@ export default function RiderProfileModal({ rider, close }) {
                   <h3 className="text-base font-semibold text-evegah-text">Rental &amp; Payment</h3>
                   <div className="mt-4 rounded-2xl border border-evegah-border bg-gray-50 p-4">
                     {Array.isArray(rides) && rides.length > 0 ? (
-                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between mb-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
                         <div className="text-sm font-semibold text-evegah-text">Ride Details</div>
-                        <div className="flex items-center gap-2">
-                          <label className="text-xs font-semibold text-gray-500">Select Ride</label>
+                        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
+                          <label className="text-xs font-semibold text-gray-500 sm:whitespace-nowrap">
+                            Select Ride
+                          </label>
                           <select
-                            className="input h-9 py-0"
+                            className="input h-9 py-0 w-full sm:w-64"
                             value={selectedRentalId}
                             onChange={(e) => setSelectedRentalId(e.target.value)}
                           >
@@ -404,6 +496,16 @@ export default function RiderProfileModal({ rider, close }) {
                               </option>
                             ))}
                           </select>
+
+                          <button
+                            type="button"
+                            onClick={handleDownloadReceipt}
+                            disabled={downloadingReceipt}
+                            className="shrink-0 p-2 bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-60"
+                            title="Download receipt for selected ride"
+                          >
+                            <Download size={16} />
+                          </button>
                         </div>
                       </div>
                     ) : null}
@@ -424,7 +526,7 @@ export default function RiderProfileModal({ rider, close }) {
                       <Field label="E-Bike Model" value={safeText(currentRide?.bike_model)} />
                       <Field label="E-Bike ID" value={safeText(currentRide?.bike_id)} right />
 
-                      <Field label="Vehicle Number" value={safeText(currentRide?.vehicle_number)} />
+                      <Field label="Battery ID" value={safeText(currentRide?.battery_id)} />
                       <Field label="Accessories Issued" value={safeText(currentRide?.other_accessories)} />
                     </div>
                   </div>
@@ -569,12 +671,10 @@ export default function RiderProfileModal({ rider, close }) {
                                 {ride.end_time ? fmtDateTime(ride.end_time) : "Ongoing"}
                               </div>
                               <div className="text-xs text-gray-500 mt-1">
-                                Vehicle: {safeText(ride.vehicle_number)} · Bike: {safeText(ride.bike_id)}
+                                Battery: {safeText(ride.battery_id)} · Bike: {safeText(ride.bike_id)}
                               </div>
                             </div>
-                            <div className="text-sm font-semibold text-evegah-text">
-                              ₹{Number(ride.total_amount || 0)}
-                            </div>
+                            <div className="text-sm font-semibold text-evegah-text">₹{Number(ride.total_amount || 0)}</div>
                           </div>
                         ))}
                       </div>

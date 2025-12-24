@@ -8,6 +8,14 @@ function safeString(value) {
   return s.trim() ? s : "-";
 }
 
+function formatPublicId(value) {
+  const s = String(value || "").trim();
+  if (!s) return "-";
+  const base = s.split("-")[0] || s;
+  if (base && base.length >= 6) return `EVEGAH-${base.toUpperCase()}`;
+  return s;
+}
+
 function formatDateTime(value) {
   if (!value) return "-";
   const d = new Date(value);
@@ -132,6 +140,34 @@ function addSection(doc, title, rows) {
   });
 }
 
+function addBulletedSection(doc, title, bullets) {
+  const margin = 14;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const startY = (doc.lastAutoTable?.finalY || 44) + 10;
+
+  doc.setFillColor(...BRAND.primary);
+  doc.rect(margin, startY, pageWidth - margin * 2, 8, "F");
+  doc.setFontSize(11);
+  doc.setTextColor(255);
+  doc.text(title, margin + 3, startY + 5.6);
+
+  const rows = (bullets || []).map((text, idx) => [`${idx + 1}.`, safeString(text)]);
+
+  autoTable(doc, {
+    startY: startY + 10,
+    theme: "grid",
+    body: rows,
+    styles: { fontSize: 9, cellPadding: 2, textColor: 30, valign: "top" },
+    tableLineColor: BRAND.border,
+    tableLineWidth: 0.2,
+    columnStyles: {
+      0: { cellWidth: 14, fontStyle: "bold", textColor: 60 },
+      1: { cellWidth: pageWidth - margin * 2 - 14 },
+    },
+    margin: { left: margin, right: margin },
+  });
+}
+
 function ensureSpace(doc, requiredHeightMm) {
   const pageHeight = doc.internal.pageSize.getHeight();
   const currentY = (doc.lastAutoTable?.finalY || 20) + 10;
@@ -145,7 +181,7 @@ export async function downloadRiderReceiptPdf({ formData, registration } = {}) {
 
   const receiptGeneratedAt = new Date();
   const receiptNo = registration?.rentalId || registration?.riderId
-    ? `R-${safeString(registration?.riderId)} / RENT-${safeString(registration?.rentalId)}`
+    ? formatPublicId(registration?.rentalId || registration?.riderId)
     : `LOCAL-${receiptGeneratedAt.getTime()}`;
 
   const logoDataUrl = await getLogoDataUrl();
@@ -177,7 +213,6 @@ export async function downloadRiderReceiptPdf({ formData, registration } = {}) {
     ["Bike Model", safeString(formData?.bikeModel)],
     ["Bike ID", safeString(formData?.bikeId)],
     ["Battery ID", safeString(formData?.batteryId)],
-    ["Vehicle Number", safeString(formData?.vehicleNumber || formData?.bikeId)],
     [
       "Accessories",
       Array.isArray(formData?.accessories) && formData.accessories.length
@@ -201,6 +236,15 @@ export async function downloadRiderReceiptPdf({ formData, registration } = {}) {
     ["Accepted", formData?.agreementAccepted ? "Yes" : "No"],
     ["Agreement Date", formatDateTime(formData?.agreementDate)],
     ["Issued By", safeString(formData?.issuedByName)],
+  ]);
+
+  // Terms & Conditions
+  addBulletedSection(doc, "Terms & Conditions", [
+    "This receipt is proof of payment only; it does not guarantee vehicle availability.",
+    "Security deposit (if any) is refundable subject to vehicle return and inspection as per company policy.",
+    "Rider must carry valid ID and follow all traffic rules and local regulations.",
+    "Charges may apply for damages, missing accessories, late returns, or policy violations.",
+    "For corrections or support, contact the EVegah team with the receipt number.",
   ]);
 
   // Signature (optional)

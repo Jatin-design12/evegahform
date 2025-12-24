@@ -1,8 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { getIdTokenResult, signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../config/firebase";
 import Logo from "../assets/logo.png";
+import {
+  getValidAuthSession,
+  setAuthSession,
+  SESSION_DURATION_MS,
+} from "../utils/authSession";
+
+const ADMIN_EMAIL = "adminev@gmail.com";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -10,14 +17,34 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    const existing = getValidAuthSession();
+    if (existing) {
+      navigate("/redirect", { replace: true });
+    }
+  }, [navigate]);
+
   const loginUser = async (e) => {
     e.preventDefault();
     setError("");
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const credential = await signInWithEmailAndPassword(auth, email, password);
+      const firebaseUser = credential.user;
+      const tokenResult = await getIdTokenResult(firebaseUser);
 
-      // ✅ Always redirect to a neutral route
+      const normalizedEmail = String(firebaseUser.email || "").toLowerCase();
+      const role =
+        normalizedEmail === ADMIN_EMAIL
+          ? "admin"
+          : tokenResult.claims.role || "employee";
+
+      setAuthSession({
+        token: tokenResult.token,
+        role,
+        expiresAt: Date.now() + SESSION_DURATION_MS,
+      });
+
       navigate("/redirect", { replace: true });
 
     } catch (err) {

@@ -1,8 +1,26 @@
-const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5050").replace(/\/$/, "");
+const API_BASE = String(
+  import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || ""
+).replace(/\/+$/, "");
+
+import { auth } from "./firebase";
+import { getValidAuthSession } from "../utils/authSession";
 
 export async function apiFetch(path, options = {}) {
   const url = `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
   const headers = new Headers(options.headers || {});
+
+  const session = getValidAuthSession();
+  if (session) {
+    let token = session.token;
+    if (auth?.currentUser?.getIdToken) {
+      try {
+        token = await auth.currentUser.getIdToken();
+      } catch {
+        // ignore, use stored token
+      }
+    }
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+  }
 
   // Auto JSON unless caller provided FormData
   const body = options.body;

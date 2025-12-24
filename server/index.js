@@ -34,41 +34,6 @@ const databaseUrl = process.env.DATABASE_URL;
 
 const ADMIN_EMAIL = String(process.env.ADMIN_EMAIL || "adminev@gmail.com").trim().toLowerCase();
 
-const LIMIT_USERS = Math.max(0, Number.parseInt(process.env.LIMIT_USERS || "2", 10) || 0);
-const LIMIT_RIDERS = Math.max(0, Number.parseInt(process.env.LIMIT_RIDERS || "5", 10) || 0);
-const LIMIT_BATTERY_SWAPS = Math.max(0, Number.parseInt(process.env.LIMIT_BATTERY_SWAPS || "5", 10) || 0);
-
-async function assertDbCountBelowLimit({ client, table, limit, errorMessage }) {
-  if (!limit || limit <= 0) return;
-  const { rows } = await client.query(`select count(*)::int as count from ${table}`);
-  const count = Number(rows?.[0]?.count || 0);
-  if (count >= limit) {
-    throw new Error(errorMessage || `Limit reached (${limit})`);
-  }
-}
-
-async function countFirebaseNonAdminUsers() {
-  if (!LIMIT_USERS || LIMIT_USERS <= 0) return 0;
-
-  let pageToken = undefined;
-  let count = 0;
-  do {
-    const list = await admin.auth().listUsers(1000, pageToken);
-    for (const u of list.users || []) {
-      const email = String(u.email || "").trim().toLowerCase();
-      const role = u.customClaims?.role || "employee";
-      const isAdmin = role === "admin" || (email && email === ADMIN_EMAIL);
-      if (isAdmin) continue;
-
-      count += 1;
-      if (count >= LIMIT_USERS) return count;
-    }
-    pageToken = list.pageToken;
-  } while (pageToken);
-
-  return count;
-}
-
 if (!databaseUrl) {
   // Keep the server running to show a clear error on requests.
   console.warn("Missing DATABASE_URL in environment");
@@ -296,7 +261,25 @@ async function autoCreateBatterySwapForRental({ client, rental }) {
   const batteryIn = String(rental?.battery_id || "").trim();
   const swappedAt = rental?.start_time;
 
+  const meta = rental?.meta && typeof rental.meta === "object" ? rental.meta : {};
+  const employeeUid = String(meta.employee_uid || meta.employeeUid || "").trim() || "system";
+  const employeeEmail = String(meta.employee_email || meta.employeeEmail || "").trim() || null;
+
   if (!vehicleNumber || !batteryIn || !swappedAt) return;
+
+  // Prevent duplicate auto swaps (same vehicle + same start time + same battery)
+  const dupe = await client.query(
+    `select 1
+     from public.battery_swaps
+     where regexp_replace(lower(coalesce(vehicle_number,'')),'[^a-z0-9]+','','g') =
+           regexp_replace(lower($1::text),'[^a-z0-9]+','','g')
+       and swapped_at = $2::timestamptz
+       and regexp_replace(lower(coalesce(battery_in,'')),'[^a-z0-9]+','','g') =
+           regexp_replace(lower($3::text),'[^a-z0-9]+','','g')
+     limit 1`,
+    [vehicleNumber, swappedAt, batteryIn]
+  );
+  if (dupe.rowCount) return;
 
   const prev = await client.query(
     `select battery_in
@@ -311,21 +294,14 @@ async function autoCreateBatterySwapForRental({ client, rental }) {
   const previousBattery = String(prev.rows?.[0]?.battery_in || "").trim();
   const batteryOut = previousBattery || "UNKNOWN";
 
-  await assertDbCountBelowLimit({
-    client,
-    table: "public.battery_swaps",
-    limit: LIMIT_BATTERY_SWAPS,
-    errorMessage: `Battery swap limit reached (${LIMIT_BATTERY_SWAPS}).`,
-  });
-
   await client.query(
     `insert into public.battery_swaps
        (employee_uid, employee_email, vehicle_number, battery_out, battery_in, swapped_at, notes)
      values
        ($1,$2,$3,$4,$5,$6,$7)`,
     [
-      "system",
-      null,
+      employeeUid,
+      employeeEmail,
       vehicleNumber,
       batteryOut,
       batteryIn,
@@ -363,7 +339,14 @@ function createReceiptPdfBuffer({ formData, registration }) {
       doc.on("error", reject);
 
       const now = new Date();
-      const receiptNo = registration?.rentalId || registration?.riderId || "";
+      const rawReceiptNo = registration?.rentalId || registration?.riderId || "";
+      const receiptNo = (() => {
+        const s = String(rawReceiptNo || "").trim();
+        if (!s) return "";
+        const base = s.split("-")[0] || s;
+        if (base && base.length >= 6) return `EVEGAH-${base.toUpperCase()}`;
+        return s;
+      })();
       const riderCode = registration?.riderCode || "";
 
       const primary = "#1A574A";
@@ -468,6 +451,14 @@ function createReceiptPdfBuffer({ formData, registration }) {
         ["Rental Start", formData?.rentalStart || "-"],
         ["Return Date", formData?.rentalEnd || "-"],
         ["Package", formData?.rentalPackage || "-"],
+      ]);
+
+      drawSection("Terms & Conditions", [
+        ["1.", "This receipt is proof of payment only; it does not guarantee vehicle availability."],
+        ["2.", "Security deposit (if any) is refundable subject to vehicle return and inspection as per company policy."],
+        ["3.", "Rider must carry valid ID and follow all traffic rules and local regulations."],
+        ["4.", "Charges may apply for damages, missing accessories, late returns, or policy violations."],
+        ["5.", "For corrections or support, contact the EVegah team with the receipt number."],
       ]);
 
       doc
@@ -642,7 +633,14 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
     const authToken = String(process.env.TWILIO_AUTH_TOKEN || "").trim();
     const fromWhatsApp = String(process.env.TWILIO_WHATSAPP_FROM || "").trim();
 
-    const receiptId = `${registration?.rentalId || registration?.riderId || Date.now()}`;
+    const rawReceiptId = `${registration?.rentalId || registration?.riderId || Date.now()}`;
+    const receiptId = (() => {
+      const s = String(rawReceiptId || "").trim();
+      if (!s) return String(Date.now());
+      const base = s.split("-")[0] || s;
+      if (base && base.length >= 6) return `EVEGAH-${base.toUpperCase()}`;
+      return s;
+    })();
     const fileName = `receipt_${receiptId}.pdf`;
     const absPath = path.join(uploadsDir, fileName);
     const pdfBuffer = await createReceiptPdfBuffer({ formData, registration });
@@ -1300,20 +1298,6 @@ app.post("/api/registrations/new-rider", async (req, res) => {
   try {
     await client.query("begin");
 
-    // Quota: limit total unique riders (by row count). Allow updates for existing mobile.
-    if (LIMIT_RIDERS && LIMIT_RIDERS > 0) {
-      const existingRider = await client.query(`select id from public.riders where mobile = $1 limit 1`, [mobile]);
-      const exists = Boolean(existingRider.rows?.[0]?.id);
-      if (!exists) {
-        await assertDbCountBelowLimit({
-          client,
-          table: "public.riders",
-          limit: LIMIT_RIDERS,
-          errorMessage: `Rider limit reached (${LIMIT_RIDERS}).`,
-        });
-      }
-    }
-
     const availability = await getActiveAvailability({ client });
     const requestedVehicleId = normalizeIdForCompare(rental.bike_id || rental.bikeId || "");
     const requestedVehicleNumber = normalizeIdForCompare(
@@ -1614,6 +1598,7 @@ app.get("/api/analytics/active-zone-counts", async (_req, res) => {
 app.post("/api/returns/submit", upload.array("photos", 10), async (req, res) => {
   const rentalId = String(req.body.rentalId || "");
   const conditionNotes = String(req.body.conditionNotes || "").trim();
+  const feedback = String(req.body.feedback || "").trim();
   if (!rentalId) return res.status(400).json({ error: "rentalId required" });
   if (!conditionNotes) return res.status(400).json({ error: "conditionNotes required" });
 
@@ -1646,6 +1631,15 @@ app.post("/api/returns/submit", upload.array("photos", 10), async (req, res) => 
       [rentalId, nowIso, conditionNotes]
     );
     const returnId = ret.rows?.[0]?.id;
+
+    if (returnId && feedback) {
+      await client.query(
+        `update public.returns
+         set meta = coalesce(meta,'{}'::jsonb) || jsonb_build_object('feedback', $1::text)
+         where id = $2`,
+        [feedback, returnId]
+      );
+    }
 
     // Deposit refund: when return is recorded, mark deposit as returned to rider.
     // We store this as metadata to avoid schema changes.
@@ -1694,6 +1688,7 @@ app.post("/api/returns/submit", upload.array("photos", 10), async (req, res) => 
 app.get("/api/rentals/active", async (req, res) => {
   const mobile = toDigits(req.query.mobile || "", 10);
   const vehicle = String(req.query.vehicle || "").trim();
+  const battery = String(req.query.battery || req.query.batteryId || "").trim();
 
   try {
     const params = [];
@@ -1709,6 +1704,24 @@ app.get("/api/rentals/active", async (req, res) => {
       const vehicleNorm = vehicle.replace(/[^a-z0-9]+/gi, "").toLowerCase();
       where.push(
         `regexp_replace(lower(coalesce(vehicle_number,'')),'[^a-z0-9]+','','g') = ${push(vehicleNorm)}`
+      );
+    }
+
+    if (battery) {
+      const batteryNorm = battery.replace(/[^a-z0-9]+/gi, "").toLowerCase();
+      where.push(
+        `regexp_replace(lower(coalesce(
+                (
+                  select s.battery_in
+                  from public.battery_swaps s
+                  where regexp_replace(lower(coalesce(s.vehicle_number,'')),'[^a-z0-9]+','','g') =
+                        regexp_replace(lower(coalesce(r.vehicle_number,'')),'[^a-z0-9]+','','g')
+                    and s.swapped_at >= r.start_time
+                  order by s.swapped_at desc, s.created_at desc
+                  limit 1
+                ),
+                r.battery_id
+              )),'[^a-z0-9]+','','g') = ${push(batteryNorm)}`
       );
     }
     if (mobile) {
@@ -1944,13 +1957,6 @@ app.post("/api/admin/users", requireAdmin, async (req, res) => {
   if (!password) return res.status(400).json({ error: "password required" });
 
   try {
-    if (LIMIT_USERS && LIMIT_USERS > 0) {
-      const count = await countFirebaseNonAdminUsers();
-      if (count >= LIMIT_USERS) {
-        return res.status(403).json({ error: `User limit reached (${LIMIT_USERS}).` });
-      }
-    }
-
     const created = await admin.auth().createUser({
       email,
       password,
@@ -2034,16 +2040,15 @@ app.delete("/api/admin/users/:uid", requireAdmin, async (req, res) => {
 
 // Drafts
 app.get("/api/drafts", async (req, res) => {
-  const employeeUid = String(req.query.employeeUid || "").trim();
-  if (!employeeUid) return res.status(400).json({ error: "employeeUid required" });
+  const employeeUid = req.query.employeeUid ? String(req.query.employeeUid).trim() : null;
 
   try {
     const { rows } = await pool.query(
       `select id, created_at, updated_at, employee_uid, employee_email, name, phone, step_label, step_path, meta
        from public.rider_drafts
-       where employee_uid = $1
+       ${employeeUid ? 'where employee_uid = $1' : ''}
        order by updated_at desc`,
-      [employeeUid]
+      employeeUid ? [employeeUid] : []
     );
 
     res.json(rows);
@@ -2150,8 +2155,21 @@ app.delete("/api/drafts/:id", async (req, res) => {
 
 // Battery Swaps
 app.get("/api/battery-swaps", async (req, res) => {
-  const employeeUid = String(req.query.employeeUid || "").trim();
-  if (!employeeUid) return res.status(400).json({ error: "employeeUid required" });
+  const employeeUid = req.query.employeeUid ? String(req.query.employeeUid).trim() : null;
+
+  const where = [];
+  const params = [];
+  const push = (value) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+
+  if (employeeUid) {
+    const param = push(employeeUid);
+    where.push(`(s.employee_uid = ${param} or (s.employee_uid = 'system' and rr.rental_employee_uid = ${param}))`);
+  }
+
+  const whereSql = where.length ? `where ${where.join(" and ")}` : "";
 
   try {
     const { rows } = await pool.query(
@@ -2161,6 +2179,7 @@ app.get("/api/battery-swaps", async (req, res) => {
        from public.battery_swaps s
        left join lateral (
          select r.id as rental_id,
+                coalesce(r.meta->>'employee_uid','') as rental_employee_uid,
                 rd.id as rider_id,
                 rd.full_name as rider_full_name,
                 rd.mobile as rider_mobile
@@ -2174,10 +2193,10 @@ app.get("/api/battery-swaps", async (req, res) => {
          order by r.start_time desc
          limit 1
        ) rr on true
-       where s.employee_uid = $1
+       ${whereSql}
        order by s.swapped_at desc
        limit 200`,
-      [employeeUid]
+      params
     );
 
     res.json(rows);
@@ -2195,14 +2214,6 @@ app.post("/api/battery-swaps", async (req, res) => {
   if (!body.battery_in) return res.status(400).json({ error: "battery_in required" });
 
   try {
-    if (LIMIT_BATTERY_SWAPS && LIMIT_BATTERY_SWAPS > 0) {
-      const q = await pool.query(`select count(*)::int as count from public.battery_swaps`);
-      const count = Number(q.rows?.[0]?.count || 0);
-      if (count >= LIMIT_BATTERY_SWAPS) {
-        return res.status(403).json({ error: `Battery swap limit reached (${LIMIT_BATTERY_SWAPS}).` });
-      }
-    }
-
     const { rows } = await pool.query(
       `insert into public.battery_swaps
        (employee_uid, employee_email, vehicle_number, battery_out, battery_in, swapped_at, notes)
@@ -2227,8 +2238,9 @@ app.post("/api/battery-swaps", async (req, res) => {
 
 // Usage stats: which battery is used more (based on installs = battery_in count)
 app.get("/api/battery-swaps/usage", async (req, res) => {
-  const employeeUid = String(req.query.employeeUid || "").trim();
-  if (!employeeUid) return res.status(400).json({ error: "employeeUid required" });
+  const employeeUid = req.query.employeeUid ? String(req.query.employeeUid).trim() : null;
+  const params = employeeUid ? [employeeUid] : [];
+  const filter = employeeUid ? "where employee_uid = $1" : "";
 
   try {
     const { rows } = await pool.query(
@@ -2238,18 +2250,18 @@ app.get("/api/battery-swaps/usage", async (req, res) => {
        from (
          select battery_in as battery_id, count(*)::int as installs, 0::int as removals
          from public.battery_swaps
-         where employee_uid = $1
+         ${filter}
          group by battery_in
          union all
-         select battery_out as battery_id, 0::int as installs, count(*)::int as removals
-         from public.battery_swaps
-         where employee_uid = $1
+        select battery_out as battery_id, 0::int as installs, count(*)::int as removals
+        from public.battery_swaps
+         ${filter}
          group by battery_out
        ) x
        group by battery_id
        order by (sum(installs)) desc, (sum(removals)) desc
        limit 20`,
-      [employeeUid]
+      params
     );
 
     res.json(rows);
@@ -2597,18 +2609,30 @@ app.get("/api/admin/battery-swaps/latest-by-vehicle", requireAdmin, async (req, 
 
 // Payment Dues
 app.get("/api/payment-dues", async (req, res) => {
-  const employeeUid = String(req.query.employeeUid || "").trim();
-  if (!employeeUid) return res.status(400).json({ error: "employeeUid required" });
+  const employeeUid = req.query.employeeUid ? String(req.query.employeeUid).trim() : null;
+
+  const filters = [];
+  const params = [];
+  const push = (value) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+
+  if (employeeUid) {
+    filters.push(`employee_uid = ${push(employeeUid)}`);
+  }
+
+  const whereSql = filters.length ? `where ${filters.join(" and ")}` : "";
 
   try {
     const { rows } = await pool.query(
       `select id, created_at, updated_at, employee_uid, employee_email,
               rider_name, rider_phone, amount_due, due_date, status, notes
        from public.payment_dues
-       where employee_uid = $1
+       ${whereSql}
        order by (case when due_date is null then 1 else 0 end), due_date asc, updated_at desc
        limit 200`,
-      [employeeUid]
+      params
     );
     res.json(rows);
   } catch (error) {
@@ -2616,9 +2640,72 @@ app.get("/api/payment-dues", async (req, res) => {
   }
 });
 
-app.get("/api/payment-dues/summary", async (req, res) => {
+// Overdue Rentals (active rentals past expected_end_time)
+app.get("/api/rentals/overdue", async (req, res) => {
   const employeeUid = String(req.query.employeeUid || "").trim();
-  if (!employeeUid) return res.status(400).json({ error: "employeeUid required" });
+
+  const where = [
+    "not exists (select 1 from public.returns ret where ret.rental_id = r.id)",
+    "coalesce(nullif(r.meta->>'expected_end_time',''),'') <> ''",
+    // avoid cast errors when expected_end_time is missing/invalid
+    "(r.meta->>'expected_end_time') ~ '^\\d{4}-\\d{2}-\\d{2}T'",
+    "(r.meta->>'expected_end_time')::timestamptz < now()",
+  ];
+  const params = [];
+  const push = (v) => {
+    params.push(v);
+    return `$${params.length}`;
+  };
+
+  if (employeeUid) {
+    where.push(`coalesce(r.meta->>'employee_uid','') = ${push(employeeUid)}`);
+  }
+
+  const whereSql = where.length ? `where ${where.join(" and ")}` : "";
+
+  try {
+    const { rows } = await pool.query(
+      `select
+         r.id as rental_id,
+         r.start_time,
+         r.total_amount,
+         r.payment_mode,
+         r.vehicle_number,
+         r.bike_id,
+         coalesce(r.meta->>'expected_end_time','') as expected_end_time,
+         coalesce(r.meta->>'employee_uid','') as employee_uid,
+         coalesce(r.meta->>'employee_email','') as employee_email,
+         rd.id as rider_id,
+         rd.full_name as rider_name,
+         rd.mobile as rider_phone
+       from public.rentals r
+       left join public.riders rd on rd.id = r.rider_id
+       ${whereSql}
+       order by (r.meta->>'expected_end_time')::timestamptz asc
+       limit 200`,
+      params
+    );
+    res.json(rows || []);
+  } catch (error) {
+    res.status(500).json({ error: String(error?.message || error) });
+  }
+});
+
+app.get("/api/payment-dues/summary", async (req, res) => {
+  const employeeUid = req.query.employeeUid ? String(req.query.employeeUid).trim() : null;
+
+  const params = [];
+  const push = (value) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+
+  const filters = ["status = 'due'"];
+  if (employeeUid) {
+    filters.unshift(`employee_uid = ${push(employeeUid)}`);
+  }
+
+  const whereSql = filters.length ? `where ${filters.join(" and ")}` : "";
 
   try {
     const { rows } = await pool.query(
@@ -2626,9 +2713,8 @@ app.get("/api/payment-dues/summary", async (req, res) => {
          count(*)::int as due_count,
          coalesce(sum(amount_due), 0)::numeric(12,2) as due_total
        from public.payment_dues
-       where employee_uid = $1
-         and status = 'due'`,
-      [employeeUid]
+       ${whereSql}`,
+      params
     );
     res.json(rows[0] || { due_count: 0, due_total: "0.00" });
   } catch (error) {

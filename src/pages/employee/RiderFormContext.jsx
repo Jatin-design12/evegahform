@@ -103,6 +103,7 @@ const defaultFormData = {
   /* STEP 2 */
   rentalStart: "",
   rentalEnd: "",
+  rentalEndManual: false,
   rentalPackage: "daily",
   rentalAmount: 250,
   securityDeposit: 300,
@@ -156,9 +157,12 @@ export function RiderFormProvider({ children, user, initialDraftId = null }) {
     const nextEnd = computeRentalEnd(formData.rentalStart, formData.rentalPackage);
 
     setFormData((prev) => {
+      // If the user manually edited return date/time, don't overwrite it.
+      // If they clear it, allow auto to fill again.
+      if (prev.rentalEndManual && (prev.rentalEnd || "")) return prev;
       // Keep it stable (avoid re-render loops)
       if ((prev.rentalEnd || "") === (nextEnd || "")) return prev;
-      return { ...prev, rentalEnd: nextEnd };
+      return { ...prev, rentalEnd: nextEnd, rentalEndManual: false };
     });
   }, [formData.rentalStart, formData.rentalPackage]);
 
@@ -184,7 +188,26 @@ export function RiderFormProvider({ children, user, initialDraftId = null }) {
   }, [formData.rentalPackage]);
 
   const updateForm = (data) => {
-    setFormData((prev) => ({ ...prev, ...data }));
+    setFormData((prev) => {
+      const next = { ...prev, ...data };
+
+      const has = (k) => Object.prototype.hasOwnProperty.call(data || {}, k);
+      const touchedStart = has("rentalStart");
+      const touchedPackage = has("rentalPackage");
+      const touchedEnd = has("rentalEnd");
+
+      if (touchedEnd) {
+        next.rentalEndManual = true;
+      }
+
+      // If start/package changes, switch back to auto-mode unless end is being
+      // set in the same update.
+      if ((touchedStart || touchedPackage) && !touchedEnd) {
+        next.rentalEndManual = false;
+      }
+
+      return next;
+    });
   };
 
   useEffect(() => {

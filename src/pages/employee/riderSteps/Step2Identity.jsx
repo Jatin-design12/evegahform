@@ -166,7 +166,7 @@ export default function Step2Identity() {
               type="datetime-local"
               className="input"
               value={formData.rentalEnd || ""}
-              readOnly
+              onChange={(e) => updateForm({ rentalEnd: e.target.value })}
             />
             <p className="mt-1 text-xs text-gray-500">
               Auto: calculated from package

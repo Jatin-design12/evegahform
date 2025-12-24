@@ -15,6 +15,7 @@ const sanitizeNumericInput = (value, maxLength) =>
 
 function RetainRiderInner() {
   const { formData, updateForm, resetForm } = useRiderForm();
+  const { user } = useAuth();
 
   const preRidePhotosInputRef = useRef(null);
 
@@ -407,6 +408,10 @@ function RetainRiderInner() {
             battery_id: formData.batteryId || null,
             accessories: Array.isArray(formData.accessories) ? formData.accessories : [],
             other_accessories: formData.otherAccessories || null,
+            meta: {
+              employee_uid: user?.uid || null,
+              employee_email: user?.email || null,
+            },
             documents: {
               preRidePhotos: Array.isArray(formData.preRidePhotos) ? formData.preRidePhotos : [],
             },
@@ -576,7 +581,7 @@ function RetainRiderInner() {
                   type="datetime-local"
                   className="input"
                   value={formData.rentalEnd || ""}
-                  readOnly
+                  onChange={(e) => updateForm({ rentalEnd: e.target.value })}
                 />
                 <p className="mt-1 text-xs text-gray-500">
                   Auto: calculated from package

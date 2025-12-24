@@ -33,6 +33,15 @@ export default function App() {
 
         {/* ---------- ADMIN ---------- */}
         <Route
+          path="/admin"
+          element={
+            <ProtectedRouteAdmin>
+              <Navigate to="/admin/dashboard" replace />
+            </ProtectedRouteAdmin>
+          }
+        />
+
+        <Route
           path="/admin/dashboard"
           element={
             <ProtectedRouteAdmin>
@@ -96,6 +105,15 @@ export default function App() {
         />
 
         {/* ---------- EMPLOYEE ---------- */}
+        <Route
+          path="/employee"
+          element={
+            <ProtectedRouteEmployee>
+              <Navigate to="/employee/dashboard" replace />
+            </ProtectedRouteEmployee>
+          }
+        />
+
         <Route
           path="/employee/dashboard"
           element={

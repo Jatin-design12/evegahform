@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
-  BadgeIndianRupee,
   BatteryCharging,
+  Clock,
   ClipboardList,
   FileText,
   MapPinned,
@@ -13,8 +13,6 @@ import {
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
@@ -25,9 +23,11 @@ import {
 import EmployeeLayout from "../../components/layouts/EmployeeLayout";
 import useAuth from "../../hooks/useAuth";
 import useVehicleZoneCounts from "../../hooks/useVehicleZoneCounts";
+import { apiFetch } from "../../config/api";
 import { deleteRiderDraft, listRiderDrafts } from "../../utils/riderDrafts";
 import { listBatterySwaps } from "../../utils/batterySwaps";
 import { getPaymentDueSummary, listPaymentDues } from "../../utils/paymentDues";
+import { listOverdueRentals } from "../../utils/overdueRentals";
 
 const formatINR = (value) => {
   const n = Number(value || 0);
@@ -98,6 +98,48 @@ const buildDailySeries = ({ rows, dateField, valueFn, days = 14 }) => {
     day: fmt.format(new Date(k)),
     value: v,
   }));
+};
+
+const formatDateTime = (value) => {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleString("en-IN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const formatOverdueSince = (expectedEnd) => {
+  if (!expectedEnd) return "-";
+  const end = new Date(expectedEnd);
+  if (Number.isNaN(end.getTime())) return "-";
+  const now = new Date();
+  const diffMs = now.getTime() - end.getTime();
+  if (diffMs <= 0) return "0m";
+  const totalMinutes = Math.floor(diffMs / 60000);
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+
+  const parts = [];
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  parts.push(`${minutes}m`);
+  return parts.join(" ");
+};
+
+const formatDuration = (startTime) => {
+  const start = startTime ? new Date(startTime).getTime() : 0;
+  if (!start) return "-";
+  const minutes = Math.max(0, Math.floor((Date.now() - start) / 60000));
+  if (minutes < 60) return `${minutes} mins`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
 };
 
 function DashboardChartCard({ icon: Icon, title, subtitle, children, action }) {
@@ -237,19 +279,34 @@ export default function Dashboard() {
   const { counts: zoneCounts, loading: zoneCountsLoading } =
     useVehicleZoneCounts();
 
+    const PAGE_SIZE = 10;
+
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsRow, setDetailsRow] = useState(null);
+
   const [drafts, setDrafts] = useState([]);
   const [draftsLoading, setDraftsLoading] = useState(false);
+    const [draftPage, setDraftPage] = useState(1);
 
   const [swaps, setSwaps] = useState([]);
   const [swapsLoading, setSwapsLoading] = useState(false);
+    const [swapPage, setSwapPage] = useState(1);
 
   const [dues, setDues] = useState([]);
   const [duesLoading, setDuesLoading] = useState(false);
   const [dueSummary, setDueSummary] = useState({ due_count: 0, due_total: 0 });
+
+  const [overdueRentals, setOverdueRentals] = useState([]);
+  const [overdueLoading, setOverdueLoading] = useState(false);
+  const [overdueAlertDismissed, setOverdueAlertDismissed] = useState(false);
+  const [activeRentals, setActiveRentals] = useState([]);
+  const [activeLoading, setActiveLoading] = useState(false);
   const [banner, setBanner] = useState(null);
+    const [duePage, setDuePage] = useState(1);
 
   const bannerStyles = {
     info: "bg-blue-50 border-blue-200 text-blue-700",
+    warning: "bg-yellow-50 border-yellow-200 text-yellow-700",
     error: "bg-red-50 border-red-200 text-red-700",
   };
 
@@ -263,23 +320,28 @@ export default function Dashboard() {
         setDraftsLoading(true);
         setSwapsLoading(true);
         setDuesLoading(true);
+        setOverdueLoading(true);
 
-        const [draftRows, swapRows, dueRows, dueSummaryRow] = await Promise.all([
-          listRiderDrafts(user.uid),
-          listBatterySwaps(user.uid),
-          listPaymentDues(user.uid),
-          getPaymentDueSummary(user.uid),
+        const [draftRows, swapRows, dueRows, dueSummaryRow, overdueRows] = await Promise.all([
+          listRiderDrafts(),
+          listBatterySwaps(),
+          listPaymentDues(),
+          getPaymentDueSummary(),
+          // Fetch without employeeUid so older rentals (without meta.employee_uid) still show.
+          listOverdueRentals(),
         ]);
 
         setDrafts(draftRows || []);
         setSwaps(swapRows || []);
         setDues(dueRows || []);
         setDueSummary(dueSummaryRow || { due_count: 0, due_total: 0 });
+        setOverdueRentals(Array.isArray(overdueRows) ? overdueRows : []);
       } catch (e) {
         setDrafts([]);
         setSwaps([]);
         setDues([]);
         setDueSummary({ due_count: 0, due_total: 0 });
+        setOverdueRentals([]);
         setBanner({
           type: "error",
           message: e?.message || "Unable to load dashboard data.",
@@ -288,11 +350,45 @@ export default function Dashboard() {
         setDraftsLoading(false);
         setSwapsLoading(false);
         setDuesLoading(false);
+        setOverdueLoading(false);
       }
     };
 
     loadDashboard();
   }, [location.pathname, user?.uid, loading]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadActiveRentals = async () => {
+      if (!mounted) return;
+      setActiveLoading(true);
+      try {
+        const rows = await apiFetch("/api/dashboard/active-rentals?limit=5");
+        if (!mounted) return;
+        setActiveRentals(
+          (Array.isArray(rows) ? rows : []).map((r) => ({
+            id: r?.id,
+            user: r?.full_name || "-",
+            vehicle: r?.vehicle_number || "-",
+            duration: formatDuration(r?.start_time),
+          }))
+        );
+      } catch {
+        if (!mounted) return;
+        setActiveRentals([]);
+      } finally {
+        if (mounted) setActiveLoading(false);
+      }
+    };
+
+    loadActiveRentals();
+    const interval = setInterval(loadActiveRentals, 15000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const handleContinueDraft = (draft) => {
     const stepPath = draft?.step_path || draft?.meta?.stepPath || "step-1";
@@ -315,12 +411,61 @@ export default function Dashboard() {
     days: 14,
   });
 
-  const dueSeries = buildDailySeries({
-    rows: (dues || []).filter((d) => d?.status === "due"),
-    dateField: "due_date",
-    valueFn: (d) => Number(d?.amount_due || 0),
-    days: 14,
-  });
+  const overdueCount = overdueLoading ? 0 : (Array.isArray(overdueRentals) ? overdueRentals.length : 0);
+  const overdueTotal = overdueLoading
+    ? 0
+    : (Array.isArray(overdueRentals) ? overdueRentals.reduce((sum, r) => sum + Number(r?.total_amount || 0), 0) : 0);
+  const combinedDueTotal = Number(dueSummary?.due_total || 0) + overdueTotal;
+  const combinedDueCount = Number(dueSummary?.due_count || 0) + overdueCount;
+
+  const paymentOverdueRows = (() => {
+    const dueRows = (dues || []).filter((d) => d?.status === "due");
+    const overdueRows = (overdueRentals || []).map((r) => ({
+      id: `overdue_${r?.rental_id || ""}`,
+      rental_id: r?.rental_id || "",
+      rider_name: r?.rider_name || "-",
+      rider_phone: r?.rider_phone || "-",
+      amount_due: Number(r?.total_amount || 0),
+      start_time: r?.start_time || null,
+      due_date: r?.expected_end_time || null,
+      status: "overdue",
+    }));
+    return [...overdueRows, ...dueRows];
+  })();
+
+  const dueTotal = paymentOverdueRows.length;
+  const duePageCount = Math.max(1, Math.ceil(dueTotal / PAGE_SIZE));
+  const duePageRows = paymentOverdueRows.slice((duePage - 1) * PAGE_SIZE, duePage * PAGE_SIZE);
+  const dueStart = dueTotal ? (duePage - 1) * PAGE_SIZE + 1 : 0;
+  const dueEnd = Math.min(dueTotal, duePage * PAGE_SIZE);
+
+  const swapTotal = Array.isArray(swaps) ? swaps.length : 0;
+  const swapPageCount = Math.max(1, Math.ceil(swapTotal / PAGE_SIZE));
+  const swapPageRows = (Array.isArray(swaps) ? swaps : []).slice((swapPage - 1) * PAGE_SIZE, swapPage * PAGE_SIZE);
+  const swapStart = swapTotal ? (swapPage - 1) * PAGE_SIZE + 1 : 0;
+  const swapEnd = Math.min(swapTotal, swapPage * PAGE_SIZE);
+
+  const draftTotal = drafts.length;
+  const draftPageCount = Math.max(1, Math.ceil(draftTotal / PAGE_SIZE));
+  const draftPageRows = drafts.slice((draftPage - 1) * PAGE_SIZE, draftPage * PAGE_SIZE);
+  const draftStart = draftTotal ? (draftPage - 1) * PAGE_SIZE + 1 : 0;
+  const draftEnd = Math.min(draftTotal, draftPage * PAGE_SIZE);
+
+  useEffect(() => {
+    setDuePage(1);
+  }, [dueTotal]);
+
+  useEffect(() => {
+    setSwapPage(1);
+  }, [swapTotal]);
+
+  useEffect(() => {
+    setDraftPage(1);
+  }, [draftTotal]);
+
+  useEffect(() => {
+    if (overdueCount > 0) setOverdueAlertDismissed(false);
+  }, [overdueCount]);
 
   return (
     <EmployeeLayout>
@@ -346,6 +491,21 @@ export default function Dashboard() {
         </div>
       )}
 
+      {!overdueLoading && overdueCount > 0 && !overdueAlertDismissed ? (
+        <div className={`rounded-xl border px-4 py-3 text-sm mb-6 ${bannerStyles.error}`}>
+          <div className="flex items-start justify-between gap-4">
+            <p>{`Overdue rides: ${overdueCount}. Please collect payment / close rentals.`}</p>
+            <button
+              type="button"
+              className="btn-muted"
+              onClick={() => setOverdueAlertDismissed(true)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {/* STATS */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <StatCardWithIcon
@@ -359,13 +519,13 @@ export default function Dashboard() {
           icon={BatteryCharging}
         />
         <StatCardWithIcon
-          label="Payment Due"
+          label="Rider Overdue"
           value={
-            duesLoading
+            overdueLoading
               ? "…"
-              : `${formatINR(dueSummary?.due_total)} (${dueSummary?.due_count || 0})`
+              : `${overdueCount} riders `
           }
-          icon={BadgeIndianRupee}
+          icon={Repeat}
         />
         <StatCardWithIcon
           label="Signed In"
@@ -429,50 +589,43 @@ export default function Dashboard() {
           </ResponsiveContainer>
         </DashboardChartCard>
 
-        <DashboardChartCard
-          icon={BadgeIndianRupee}
-          title="Payment Due"
-          subtitle="Total due amount by due date (last 14 days)"
-        >
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={dueSeries} margin={{ top: 6, right: 10, left: -10, bottom: 0 }}>
-              <CartesianGrid stroke="currentColor" className="text-evegah-border" vertical={false} />
-              <XAxis
-                dataKey="day"
-                tick={{ fill: "currentColor", fontSize: 12 }}
-                className="text-gray-500"
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                tick={{ fill: "currentColor", fontSize: 12 }}
-                className="text-gray-500"
-                axisLine={false}
-                tickLine={false}
-                width={46}
-                tickFormatter={(v) => {
-                  const n = Number(v || 0);
-                  if (n >= 100000) return `${Math.round(n / 1000)}k`;
-                  if (n >= 1000) return `${Math.round(n / 1000)}k`;
-                  return `${Math.round(n)}`;
-                }}
-              />
-              <Tooltip
-                contentStyle={{
-                  borderRadius: 12,
-                  borderColor: "#E5E7EB",
-                }}
-                formatter={(v) => [formatINR(v), "Due Amount"]}
-              />
-              <Bar
-                dataKey="value"
-                fill="currentColor"
-                className="text-evegah-accent"
-                radius={[10, 10, 0, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </DashboardChartCard>
+        <div className="card">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-evegah-bg border border-evegah-border">
+                  <Clock className="h-5 w-5 text-evegah-text" />
+                </span>
+                <h2 className="font-medium">Active Rentals</h2>
+              </div>
+              <p className="text-sm text-gray-500">Riders currently on a ride</p>
+            </div>
+            <span className="text-xs text-evegah-muted">Live</span>
+          </div>
+
+          <div className="divide-y divide-evegah-border">
+            {activeRentals.map((r, idx) => (
+              <div key={`active-${r.id || idx}`} className="flex items-center justify-between gap-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-evegah-text">{r.user}</p>
+                  <p className="text-xs text-gray-500">
+                    {r.vehicle}
+                    {r.id ? ` • ${r.id}` : ""}
+                  </p>
+                </div>
+                <p className="text-sm font-semibold text-blue-700">{r.duration}</p>
+              </div>
+            ))}
+
+            {activeLoading && activeRentals.length === 0 ? (
+              <div className="py-4 text-sm text-gray-500">Loading active rentals…</div>
+            ) : null}
+
+            {!activeLoading && activeRentals.length === 0 ? (
+              <div className="py-4 text-sm text-gray-500">No active rentals right now.</div>
+            ) : null}
+          </div>
+        </div>
 
         <div className="card">
           <div className="flex items-start justify-between gap-4">
@@ -515,7 +668,6 @@ export default function Dashboard() {
               <tr className="text-left text-gray-500 border-b border-evegah-border">
                 <th className="py-2 pr-3 font-medium">Rider</th>
                 <th className="py-2 pr-3 font-medium">Phone</th>
-                <th className="py-2 pr-3 font-medium">Amount Due</th>
                 <th className="py-2 pr-3 font-medium">Due Date</th>
                 <th className="py-2 pr-3 font-medium">Status</th>
               </tr>
@@ -523,28 +675,41 @@ export default function Dashboard() {
             <tbody>
               {duesLoading ? (
                 <tr>
-                  <td className="py-3 text-gray-500" colSpan={5}>
+                  <td className="py-3 text-gray-500" colSpan={4}>
                     Loading dues...
                   </td>
                 </tr>
-              ) : dues.filter((d) => d.status === "due").length === 0 ? (
+              ) : paymentOverdueRows.length === 0 ? (
                 <tr>
-                  <td className="py-3 text-gray-500" colSpan={5}>
+                  <td className="py-3 text-gray-500" colSpan={4}>
                     No payment dues.
                   </td>
                 </tr>
               ) : (
-                dues
-                  .filter((d) => d.status === "due")
-                  .slice(0, 8)
-                  .map((d) => (
+                duePageRows.map((d) => (
                     <tr
                       key={d.id}
-                      className="border-b border-evegah-border last:border-b-0 hover:bg-gray-50"
+                      className={`border-b border-evegah-border last:border-b-0 hover:bg-gray-50 ${
+                        d?.status === "overdue" ? "cursor-pointer" : ""
+                      }`}
+                      onClick={() => {
+                        if (d?.status !== "overdue") return;
+                        setDetailsRow(d);
+                        setDetailsOpen(true);
+                      }}
+                      role={d?.status === "overdue" ? "button" : undefined}
+                      tabIndex={d?.status === "overdue" ? 0 : undefined}
+                      onKeyDown={(e) => {
+                        if (d?.status !== "overdue") return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setDetailsRow(d);
+                          setDetailsOpen(true);
+                        }
+                      }}
                     >
                       <td className="py-3 pr-3">{d.rider_name || "-"}</td>
                       <td className="py-3 pr-3">{d.rider_phone || "-"}</td>
-                      <td className="py-3 pr-3">{formatINR(d.amount_due)}</td>
                       <td className="py-3 pr-3 text-gray-500">
                         {d.due_date
                           ? new Date(d.due_date).toLocaleDateString()
@@ -556,8 +721,93 @@ export default function Dashboard() {
               )}
             </tbody>
           </table>
+          <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
+            <p>
+              Showing {dueStart}-{dueEnd} of {dueTotal} entries
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn-muted px-3 py-1 text-xs"
+                disabled={duePage === 1}
+                onClick={() => setDuePage((prev) => Math.max(1, prev - 1))}
+              >
+                Previous
+              </button>
+              <span>
+                Page {duePage} / {duePageCount}
+              </span>
+              <button
+                type="button"
+                className="btn-muted px-3 py-1 text-xs"
+                disabled={duePage >= duePageCount}
+                onClick={() => setDuePage((prev) => Math.min(duePageCount, prev + 1))}
+              >
+                Next
+              </button>
+            </div>
+          </div>
         </div>
       </div>
+
+      {detailsOpen && detailsRow ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            onClick={() => {
+              setDetailsOpen(false);
+              setDetailsRow(null);
+            }}
+            aria-label="Close"
+          />
+
+          <div className="relative card w-full max-w-md p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-base font-semibold text-evegah-text">Rider Details</h3>
+                <p className="text-sm text-gray-500">Overdue ride summary</p>
+              </div>
+              <button
+                type="button"
+                className="btn-muted"
+                onClick={() => {
+                  setDetailsOpen(false);
+                  setDetailsRow(null);
+                }}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <div>
+                <p className="text-xs text-gray-500">Rider Name</p>
+                <p className="text-sm font-medium text-evegah-text">{detailsRow.rider_name || "-"}</p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs text-gray-500">Start Date &amp; Time</p>
+                  <p className="text-sm text-evegah-text">{formatDateTime(detailsRow.start_time)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Return Date &amp; Time</p>
+                  <p className="text-sm text-evegah-text">{formatDateTime(detailsRow.due_date)}</p>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs text-gray-500">Overdue Since</p>
+                <p className="text-sm text-evegah-text">
+                  {formatOverdueSince(detailsRow.due_date)}
+                  {detailsRow.due_date ? ` (since ${formatDateTime(detailsRow.due_date)})` : ""}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* RECENT BATTERY SWAPS TABLE */}
       <div className="card">
@@ -609,7 +859,7 @@ export default function Dashboard() {
                   </td>
                 </tr>
               ) : (
-                swaps.slice(0, 5).map((s) => (
+                swapPageRows.map((s) => (
                   <tr
                     key={s.id}
                     className="border-b border-evegah-border last:border-b-0 hover:bg-gray-50"
@@ -629,6 +879,32 @@ export default function Dashboard() {
               )}
             </tbody>
           </table>
+          <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
+            <p>
+              Showing {swapStart}-{swapEnd} of {swapTotal} entries
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn-muted px-3 py-1 text-xs"
+                disabled={swapPage === 1}
+                onClick={() => setSwapPage((prev) => Math.max(1, prev - 1))}
+              >
+                Previous
+              </button>
+              <span>
+                Page {swapPage} / {swapPageCount}
+              </span>
+              <button
+                type="button"
+                className="btn-muted px-3 py-1 text-xs"
+                disabled={swapPage >= swapPageCount}
+                onClick={() => setSwapPage((prev) => Math.min(swapPageCount, prev + 1))}
+              >
+                Next
+              </button>
+            </div>
+          </div>
         </div>
       </div>
       </div>

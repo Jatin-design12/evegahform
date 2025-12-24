@@ -20,12 +20,17 @@ async function apiFetch(path, options = {}) {
   return data;
 }
 
+function buildQuery(filters) {
+  const query = new URLSearchParams(filters || {}).toString();
+  return query ? `?${query}` : "";
+}
+
 export async function listPaymentDues(employeeUid) {
-  const query = new URLSearchParams({ employeeUid }).toString();
-  return apiFetch(`/api/payment-dues?${query}`);
+  const suffix = buildQuery(employeeUid ? { employeeUid } : {});
+  return apiFetch(`/api/payment-dues${suffix}`);
 }
 
 export async function getPaymentDueSummary(employeeUid) {
-  const query = new URLSearchParams({ employeeUid }).toString();
-  return apiFetch(`/api/payment-dues/summary?${query}`);
+  const suffix = buildQuery(employeeUid ? { employeeUid } : {});
+  return apiFetch(`/api/payment-dues/summary${suffix}`);
 }
