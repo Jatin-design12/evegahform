@@ -66,6 +66,30 @@ export default function Step1RiderDetails() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!cameraActive) return;
+
+    const video = riderVideoRef.current;
+    const stream = riderStreamRef.current;
+    if (!video || !stream) return;
+
+    video.srcObject = stream;
+
+    const handleLoadedMetadata = async () => {
+      try {
+        await video.play();
+      } catch {
+        // Some browsers might block play despite autoplay/muted restrictions.
+      }
+    };
+
+    video.addEventListener("loadedmetadata", handleLoadedMetadata);
+
+    return () => {
+      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+    };
+  }, [cameraActive]);
+
   const showBanner = (type, message) => {
     if (bannerTimeoutRef.current) {
       clearTimeout(bannerTimeoutRef.current);

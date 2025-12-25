@@ -71,3 +71,4 @@ export default function EmployeeSidebar({ isMobile = false, onClose, onLogout })
     </aside>
   );
 }
+
