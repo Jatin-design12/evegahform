@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Camera, Upload } from "lucide-react";
+import { Camera, Upload, RotateCcw } from "lucide-react";
 import { lookupRider } from "../../../utils/riderLookup";
 import { useRiderForm } from "../RiderFormContext";
 
@@ -813,14 +813,24 @@ export default function Step1RiderDetails() {
 
                 {cameraActive ? (
                   <div className="space-y-3">
-                    <video
-                      ref={riderVideoRef}
-                      className="w-full rounded-lg border border-evegah-border bg-black/90"
-                      style={videoStyle}
-                      playsInline
-                      muted
-                      autoPlay
-                    />
+                    <div className="relative">
+                      <video
+                        ref={riderVideoRef}
+                        className="w-full rounded-lg border border-evegah-border bg-black/90"
+                        style={videoStyle}
+                        playsInline
+                        muted
+                        autoPlay
+                      />
+                      <button
+                        type="button"
+                        aria-label={`Switch to ${nextFacingLabel} camera`}
+                        className="absolute top-3 right-3 h-10 w-10 rounded-full border border-white bg-white/90 shadow-md text-evegah-text flex items-center justify-center"
+                        onClick={handleFlipCamera}
+                      >
+                        <RotateCcw size={18} />
+                      </button>
+                    </div>
 
                     <div className="flex flex-wrap gap-2">
                       <button
