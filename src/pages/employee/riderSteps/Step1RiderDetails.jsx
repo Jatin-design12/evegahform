@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Camera, Upload } from "lucide-react";
+import { Camera, Upload, RotateCcw } from "lucide-react";
 import { lookupRider } from "../../../utils/riderLookup";
 import { useRiderForm } from "../RiderFormContext";
 
@@ -24,6 +24,7 @@ export default function Step1RiderDetails() {
 
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState("");
+  const [facingMode, setFacingMode] = useState("user");
 
   const [aadhaarStatus, setAadhaarStatus] = useState(
     formData.aadhaarVerified ? "verified" : "idle"
@@ -235,7 +236,7 @@ export default function Step1RiderDetails() {
     return error?.message || "Unable to access camera. Please allow permission.";
   };
 
-  const startRiderCamera = async () => {
+  const startRiderCamera = async (targetFacingMode) => {
     setCameraError("");
 
     // Most browsers require HTTPS (secure context) for camera access.
@@ -260,6 +261,9 @@ export default function Step1RiderDetails() {
       return;
     }
 
+    const desiredFacingMode = targetFacingMode || facingMode;
+    setFacingMode(desiredFacingMode);
+
     try {
       // Stop any previous stream before starting a new one.
       stopRiderCamera();
@@ -269,16 +273,19 @@ export default function Step1RiderDetails() {
       };
 
       // Prefer the front camera, but fall back if constraints aren't supported.
+      const fallbackFacingMode =
+        desiredFacingMode === "user" ? "environment" : "user";
+
       let stream;
       try {
         stream = await tryGetStream({
-          video: { facingMode: { ideal: "user" } },
+          video: { facingMode: { ideal: desiredFacingMode } },
           audio: false,
         });
       } catch (firstError) {
         try {
           stream = await tryGetStream({
-            video: { facingMode: { ideal: "environment" } },
+            video: { facingMode: { ideal: fallbackFacingMode } },
             audio: false,
           });
         } catch (secondError) {
@@ -295,10 +302,22 @@ export default function Step1RiderDetails() {
 
       riderStreamRef.current = stream;
       setCameraActive(true);
+      const trackFacingMode =
+        stream
+          ?.getVideoTracks?.()?.[0]
+          ?.getSettings?.()?.facingMode;
+      if (trackFacingMode) {
+        setFacingMode(trackFacingMode);
+      }
     } catch (e) {
       setCameraActive(false);
       setCameraError(describeCameraError(e));
     }
+  };
+
+  const handleFlipCamera = () => {
+    const nextFacingMode = facingMode === "user" ? "environment" : "user";
+    startRiderCamera(nextFacingMode);
   };
 
   const captureRiderPhoto = () => {
@@ -521,7 +540,11 @@ export default function Step1RiderDetails() {
     }
   };
 
-  const videoStyle = cameraActive ? { transform: "scaleX(-1)" } : undefined;
+  const nextFacingLabel = facingMode === "user" ? "rear-facing" : "front-facing";
+  const videoStyle =
+    cameraActive && facingMode === "user"
+      ? { transform: "scaleX(-1)" }
+      : undefined;
 
   return (
     <div className="space-y-5">
@@ -784,14 +807,24 @@ export default function Step1RiderDetails() {
 
                 {cameraActive ? (
                   <div className="space-y-3">
-                    <video
-                      ref={riderVideoRef}
-                      className="w-full rounded-lg border border-evegah-border bg-black/90"
-                      style={videoStyle}
-                      playsInline
-                      muted
-                      autoPlay
-                    />
+                    <div className="relative">
+                      <video
+                        ref={riderVideoRef}
+                        className="w-full rounded-lg border border-evegah-border bg-black/90"
+                        style={videoStyle}
+                        playsInline
+                        muted
+                        autoPlay
+                      />
+                      <button
+                        type="button"
+                        aria-label={`Flip to ${nextFacingLabel} camera`}
+                        className="absolute top-3 right-3 h-10 w-10 rounded-full border border-white bg-white/90 shadow text-evegah-text flex items-center justify-center"
+                        onClick={handleFlipCamera}
+                      >
+                        <RotateCcw size={18} />
+                      </button>
+                    </div>
 
                     <div className="flex flex-wrap gap-2">
                       <button
