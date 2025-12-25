@@ -24,6 +24,8 @@ export default function Step1RiderDetails() {
 
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState("");
+  const [preferredFacingMode, setPreferredFacingMode] = useState("user");
+  const [activeFacingMode, setActiveFacingMode] = useState(null);
 
   const [aadhaarStatus, setAadhaarStatus] = useState(
     formData.aadhaarVerified ? "verified" : "idle"
@@ -211,6 +213,18 @@ export default function Step1RiderDetails() {
       riderVideoRef.current.srcObject = null;
     }
     setCameraActive(false);
+    setActiveFacingMode(null);
+  };
+
+  const getFacingLabel = (mode) =>
+    mode === "environment" ? "rear-facing" : "front-facing";
+
+  const handleFlipCamera = () => {
+    const nextFacingMode = preferredFacingMode === "user" ? "environment" : "user";
+    setPreferredFacingMode(nextFacingMode);
+    if (cameraActive) {
+      startRiderCamera(nextFacingMode);
+    }
   };
 
   const describeCameraError = (error) => {
@@ -235,7 +249,7 @@ export default function Step1RiderDetails() {
     return error?.message || "Unable to access camera. Please allow permission.";
   };
 
-  const startRiderCamera = async () => {
+  const startRiderCamera = async (targetFacingMode) => {
     setCameraError("");
 
     // Most browsers require HTTPS (secure context) for camera access.
@@ -259,6 +273,9 @@ export default function Step1RiderDetails() {
       setCameraError("Camera is not supported in this browser.");
       return;
     }
+
+    const desiredFacingMode = targetFacingMode || preferredFacingMode;
+    setPreferredFacingMode(desiredFacingMode);
 
     try {
       // Stop any previous stream before starting a new one.
@@ -295,17 +312,11 @@ export default function Step1RiderDetails() {
 
       riderStreamRef.current = stream;
       setCameraActive(true);
-
-      if (riderVideoRef.current) {
-        riderVideoRef.current.srcObject = stream;
-        riderVideoRef.current.onloadedmetadata = async () => {
-          try {
-            await riderVideoRef.current?.play();
-          } catch {
-            // Some browsers may block play() despite autoPlay/muted; stream can still be active.
-          }
-        };
-      }
+      const trackFacingMode =
+        stream
+          ?.getVideoTracks?.()?.[0]
+          ?.getSettings?.()?.facingMode || desiredFacingMode;
+      setActiveFacingMode(trackFacingMode);
     } catch (e) {
       setCameraActive(false);
       setCameraError(describeCameraError(e));
@@ -531,6 +542,15 @@ export default function Step1RiderDetails() {
       navigate("../step-2");
     }
   };
+
+  const effectiveFacingMode = activeFacingMode || preferredFacingMode || "user";
+  const nextFacingMode = preferredFacingMode === "user" ? "environment" : "user";
+  const nextFacingLabel = getFacingLabel(nextFacingMode);
+  const currentFacingLabel = getFacingLabel(effectiveFacingMode);
+  const videoStyle =
+    cameraActive && effectiveFacingMode === "user"
+      ? { transform: "scaleX(-1)" }
+      : undefined;
 
   return (
     <div className="space-y-5">
@@ -796,6 +816,7 @@ export default function Step1RiderDetails() {
                     <video
                       ref={riderVideoRef}
                       className="w-full rounded-lg border border-evegah-border bg-black/90"
+                      style={videoStyle}
                       playsInline
                       muted
                       autoPlay
@@ -817,6 +838,13 @@ export default function Step1RiderDetails() {
                       >
                         Stop Camera
                       </button>
+                      <button
+                        type="button"
+                        className="btn-outline"
+                        onClick={handleFlipCamera}
+                      >
+                        Flip to {nextFacingLabel}
+                      </button>
                     </div>
                   </div>
                 ) : (
@@ -837,7 +865,6 @@ export default function Step1RiderDetails() {
                         onClick={startRiderCamera}
                       >
                         <span className="ml-2">Start Camera</span>
-                        
                       </button>
 
                       <button
@@ -848,8 +875,19 @@ export default function Step1RiderDetails() {
                         <Upload size={16} />
                         <span className="ml-2">Upload Photo</span>
                       </button>
+
+                      <button
+                        type="button"
+                        className="btn-outline"
+                        onClick={handleFlipCamera}
+                      >
+                        Switch to {nextFacingLabel} camera
+                      </button>
                     </div>
                     <p className="text-xs text-gray-500 mt-2">
+                      Using the {currentFacingLabel} camera preference.
+                    </p>
+                    <p className="text-xs text-gray-500">
                       Allow camera permission when prompted.
                     </p>
                   </div>
