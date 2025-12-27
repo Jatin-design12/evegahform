@@ -4,6 +4,13 @@ import { Camera, Upload, RotateCcw } from "lucide-react";
 import { lookupRider } from "../../../utils/riderLookup";
 import { useRiderForm } from "../RiderFormContext";
 
+const sanitizeNumericInput = (value, maxLength) =>
+  String(value || "").replace(/\D/g, "").slice(0, maxLength);
+
+const isValidPhoneNumber = (value) => String(value || "").length === 10;
+
+const isValidAadhaarNumber = (value) => String(value || "").length === 12;
+
 const bannerStyles = {
   info: "bg-blue-50 border-blue-200 text-blue-700",
   success: "bg-green-50 border-green-200 text-green-700",
