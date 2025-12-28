@@ -107,6 +107,21 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
+app.post("/api/uploads/image", upload.single("photo"), (req, res) => {
+  const file = req.file;
+  if (!file) {
+    return res.status(400).json({ error: "photo file is required" });
+  }
+
+  return res.status(201).json({
+    url: `/uploads/${file.filename}`,
+    file_name: file.filename,
+    original_name: file.originalname,
+    mime_type: file.mimetype,
+    size_bytes: file.size,
+  });
+});
+
 function toDigits(value, maxLen) {
   return String(value || "")
     .replace(/\D/g, "")
@@ -1426,34 +1441,83 @@ app.post("/api/registrations/new-rider", async (req, res) => {
       }
     }
 
-    // Store images (data URLs) into /uploads and record in documents table
-    const docsToSave = [];
-    if (documents.riderPhoto?.dataUrl) {
-      docsToSave.push({ kind: "rider_photo", payload: documents.riderPhoto, riderId, rentalId: null });
-    }
-    if (documents.governmentId?.dataUrl) {
-      docsToSave.push({ kind: "government_id", payload: documents.governmentId, riderId, rentalId: null });
-    }
-    if (documents.riderSignature) {
-      docsToSave.push({ kind: "rider_signature", payload: { dataUrl: documents.riderSignature }, riderId, rentalId: null });
-    }
-    preRide.forEach((p) => {
-      if (p?.dataUrl) docsToSave.push({ kind: "pre_ride_photo", payload: p, riderId, rentalId });
-    });
+    const normalizeDocumentValue = (value) => {
+      if (!value) return null;
+      if (typeof value === "string") {
+        return { dataUrl: value };
+      }
+      const candidate = value.upload || value;
+      if (
+        candidate &&
+        candidate.url &&
+        candidate.file_name &&
+        candidate.mime_type
+      ) {
+        return {
+          url: candidate.url,
+          file_name: candidate.file_name,
+          mime_type: candidate.mime_type,
+          size_bytes: Number(candidate.size_bytes ?? 0),
+        };
+      }
+      if (candidate && candidate.dataUrl) {
+        return {
+          dataUrl: candidate.dataUrl,
+          fileNameHint: candidate.name,
+        };
+      }
+      return null;
+    };
 
-    for (const item of docsToSave) {
+    const docsToSave = [];
+    const enqueueDocument = (kind, payload, targetRentalId = null) => {
+      const normalized = normalizeDocumentValue(payload);
+      if (!normalized) return;
+      docsToSave.push({
+        kind,
+        riderId,
+        rentalId: targetRentalId === undefined ? null : targetRentalId,
+        ...normalized,
+      });
+    };
+
+    enqueueDocument("rider_photo", documents.riderPhoto);
+    enqueueDocument("government_id", documents.governmentId);
+    enqueueDocument("rider_signature", documents.riderSignature);
+    preRide.forEach((p) => enqueueDocument("pre_ride_photo", p, rentalId));
+
+    for (const doc of docsToSave) {
+      if (doc.url && doc.file_name && doc.mime_type) {
+        await client.query(
+          `insert into public.documents (rider_id, rental_id, kind, file_name, mime_type, size_bytes, url)
+           values ($1,$2,$3,$4,$5,$6,$7)`,
+          [
+            doc.riderId || null,
+            doc.rentalId || null,
+            doc.kind,
+            doc.file_name,
+            doc.mime_type,
+            doc.size_bytes || null,
+            doc.url,
+          ]
+        );
+        continue;
+      }
+
+      if (!doc.dataUrl) continue;
+
       const saved = await saveDataUrlToUploads({
-        dataUrl: item.payload.dataUrl,
-        fileNameHint: item.payload.name || `${item.kind}.jpg`,
+        dataUrl: doc.dataUrl,
+        fileNameHint: doc.fileNameHint || `${doc.kind}.jpg`,
       });
 
       await client.query(
         `insert into public.documents (rider_id, rental_id, kind, file_name, mime_type, size_bytes, url)
          values ($1,$2,$3,$4,$5,$6,$7)`,
         [
-          item.riderId || null,
-          item.rentalId || null,
-          item.kind,
+          doc.riderId || null,
+          doc.rentalId || null,
+          doc.kind,
           saved.file_name,
           saved.mime_type,
           saved.size_bytes,

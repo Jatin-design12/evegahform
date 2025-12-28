@@ -23,6 +23,28 @@ export default function Step4Payment() {
 
   const amount = Number(formData.totalAmount || 0);
 
+  const prepareDocumentForSubmission = (value) => {
+    if (!value) return null;
+    if (typeof value === "string") return value;
+    if (typeof value === "object") {
+      if (value.upload) return value.upload;
+      if (value.url && value.file_name && value.mime_type) {
+        return {
+          url: value.url,
+          file_name: value.file_name,
+          mime_type: value.mime_type,
+          size_bytes: Number(value.size_bytes ?? 0),
+        };
+      }
+      if (value.dataUrl) {
+        const next = { dataUrl: value.dataUrl };
+        if (value.name) next.name = value.name;
+        return next;
+      }
+    }
+    return null;
+  };
+
   const upiPayload = useMemo(() => {
     if (!upiId) return "";
     const params = new URLSearchParams({
@@ -37,6 +59,14 @@ export default function Step4Payment() {
   const handleSubmit = async () => {
     setSubmitError("");
     setWhatsAppStatus("");
+
+    const riderPhotoPayload = prepareDocumentForSubmission(formData.riderPhoto);
+    const governmentIdPayload = prepareDocumentForSubmission(formData.governmentId);
+    const preRidePayloads = (
+      Array.isArray(formData.preRidePhotos) ? formData.preRidePhotos : []
+    )
+      .map(prepareDocumentForSubmission)
+      .filter(Boolean);
 
     const fullName = String(formData.name || "").trim();
     const phoneDigits = String(formData.phone || "").replace(/\D/g, "").slice(0, 10);
@@ -115,9 +145,9 @@ export default function Step4Payment() {
             },
           },
           documents: {
-            riderPhoto: formData.riderPhoto || null,
-            governmentId: formData.governmentId || null,
-            preRidePhotos: Array.isArray(formData.preRidePhotos) ? formData.preRidePhotos : [],
+            riderPhoto: riderPhotoPayload,
+            governmentId: governmentIdPayload,
+            preRidePhotos: preRidePayloads,
             riderSignature: formData.riderSignature || null,
           },
         },
