@@ -84,11 +84,6 @@ export default function Step4Payment() {
       setSubmitError("Rental start date & time is required.");
       return;
     }
-    if (!Array.isArray(formData.preRidePhotos) || formData.preRidePhotos.length === 0) {
-      setSubmitError("Upload at least one pre-ride vehicle photo before completing.");
-      return;
-    }
-
     setSubmitting(true);
     try {
       const snapshot =
