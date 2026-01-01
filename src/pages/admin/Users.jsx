@@ -55,7 +55,7 @@ export default function AdminUsers() {
     setError("");
     setLoading(true);
     try {
-      const data = await listAuthUsers({ limit: 200 });
+      const data = await listAuthUsers();
       setUsers(Array.isArray(data?.users) ? data.users : []);
     } catch (e) {
       setError(String(e?.message || e || "Unable to load users"));

@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Camera, Upload, RotateCcw } from "lucide-react";
+import { Upload } from "lucide-react";
 import { lookupRider } from "../../../utils/riderLookup";
-import { apiFetch } from "../../../config/api";
 import { useRiderForm } from "../RiderFormContext";
+import {
+  getImageDataUrl,
+  uploadCompressedImage,
+  buildUploadedPhotoEntry,
+  validateImageFile,
+} from "./photoHelpers";
 
 const sanitizeNumericInput = (value, maxLength) =>
   String(value || "").replace(/\D/g, "").slice(0, maxLength);
@@ -11,6 +16,12 @@ const sanitizeNumericInput = (value, maxLength) =>
 const isValidPhoneNumber = (value) => String(value || "").length === 10;
 
 const isValidAadhaarNumber = (value) => String(value || "").length === 12;
+
+const formatAadhaarDisplay = (value) => {
+  const digits = sanitizeNumericInput(value, 12);
+  if (!digits) return "";
+  return digits.replace(/(\d{4})(?=\d)/g, "$1-");
+};
 
 const bannerStyles = {
   info: "bg-blue-50 border-blue-200 text-blue-700",
@@ -25,14 +36,6 @@ export default function Step1RiderDetails() {
   const navigate = useNavigate();
 
   const governmentIdInputRef = useRef(null);
-  const riderPhotoInputRef = useRef(null);
-  const preRidePhotosInputRef = useRef(null);
-  const riderVideoRef = useRef(null);
-  const riderStreamRef = useRef(null);
-
-  const [cameraActive, setCameraActive] = useState(false);
-  const [cameraError, setCameraError] = useState("");
-  const [facingMode, setFacingMode] = useState("user");
 
   const [aadhaarStatus, setAadhaarStatus] = useState(
     formData.aadhaarVerified ? "verified" : "idle"
@@ -67,37 +70,8 @@ export default function Step1RiderDetails() {
       if (bannerTimeoutRef.current) {
         clearTimeout(bannerTimeoutRef.current);
       }
-
-      if (riderStreamRef.current) {
-        riderStreamRef.current.getTracks().forEach((t) => t.stop());
-        riderStreamRef.current = null;
-      }
     };
   }, []);
-
-  useEffect(() => {
-    if (!cameraActive) return;
-
-    const video = riderVideoRef.current;
-    const stream = riderStreamRef.current;
-    if (!video || !stream) return;
-
-    video.srcObject = stream;
-
-    const handleLoadedMetadata = async () => {
-      try {
-        await video.play();
-      } catch {
-        // Some browsers might block play despite autoplay/muted restrictions.
-      }
-    };
-
-    video.addEventListener("loadedmetadata", handleLoadedMetadata);
-
-    return () => {
-      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
-    };
-  }, [cameraActive]);
 
   const showBanner = (type, message) => {
     if (bannerTimeoutRef.current) {
@@ -117,137 +91,7 @@ export default function Step1RiderDetails() {
     });
   };
 
-  const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-  const TARGET_IMAGE_BYTES = 1.2 * 1024 * 1024;
-  const MAX_IMAGE_DIMENSION = 1600;
-  const IMAGE_QUALITY_STEPS = [0.85, 0.7, 0.55, 0.4];
-
-  const getImageDataUrl = (value) => {
-    if (!value) return "";
-    if (typeof value === "string") return value;
-    if (typeof value === "object") {
-      return value.previewUrl || value.dataUrl || "";
-    }
-    return "";
-  };
-
-  const readFileAsDataUrl = (file) =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => reject(new Error("Unable to read file"));
-      reader.readAsDataURL(file);
-    });
-
-  const getBase64Chunk = (dataUrl) => {
-    if (!dataUrl) return "";
-    const commaIndex = String(dataUrl).indexOf(",");
-    if (commaIndex === -1) return "";
-    return dataUrl.slice(commaIndex + 1);
-  };
-
-  const getDataUrlByteSize = (dataUrl) => {
-    const base64 = getBase64Chunk(dataUrl);
-    if (!base64) return 0;
-    const paddingMatch = base64.match(/=+$/);
-    const paddingLength = paddingMatch ? paddingMatch[0].length : 0;
-    return Math.ceil((base64.length * 3) / 4) - paddingLength;
-  };
-
-  const dataUrlToBlob = (dataUrl) => {
-    const base64 = getBase64Chunk(dataUrl);
-    if (!base64) return new Blob();
-    const bytes = atob(base64);
-    const buffer = new Uint8Array(bytes.length);
-    for (let i = 0; i < bytes.length; i += 1) {
-      buffer[i] = bytes.charCodeAt(i);
-    }
-    const mimeMatch = String(dataUrl || "").match(/^data:([^;]+);base64,/);
-    const mime = mimeMatch ? mimeMatch[1] : "application/octet-stream";
-    return new Blob([buffer], { type: mime });
-  };
-
-  const loadImageFromDataUrl = (dataUrl) =>
-    new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error("Unable to decode image file"));
-      img.src = dataUrl;
-    });
-
-  const createCanvasForImage = (image) => {
-    const maxSide = Math.max(image.width, image.height);
-    const scale = maxSide > 0 ? Math.min(1, MAX_IMAGE_DIMENSION / maxSide) : 1;
-    const width = Math.max(1, Math.round(image.width * scale));
-    const height = Math.max(1, Math.round(image.height * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    ctx.drawImage(image, 0, 0, width, height);
-    return canvas;
-  };
-
-  const compressImageFile = async (file) => {
-    const rawDataUrl = await readFileAsDataUrl(file);
-    if (
-      typeof document === "undefined" ||
-      typeof window === "undefined" ||
-      typeof Image === "undefined"
-    ) {
-      return { dataUrl: rawDataUrl, mimeType: file.type };
-    }
-
-    const image = await loadImageFromDataUrl(rawDataUrl);
-    const canvas = createCanvasForImage(image);
-    if (!canvas) {
-      return { dataUrl: rawDataUrl, mimeType: file.type };
-    }
-
-    const toDataUrl = (quality) => canvas.toDataURL("image/jpeg", quality);
-    let finalDataUrl = toDataUrl(IMAGE_QUALITY_STEPS[0]);
-    for (const quality of IMAGE_QUALITY_STEPS) {
-      const candidate = toDataUrl(quality);
-      finalDataUrl = candidate;
-      if (getDataUrlByteSize(candidate) <= TARGET_IMAGE_BYTES) {
-        break;
-      }
-    }
-
-    return { dataUrl: finalDataUrl, mimeType: "image/jpeg" };
-  };
-
-  const uploadCompressedImage = async (file) => {
-    const { dataUrl } = await compressImageFile(file);
-    const blob = dataUrlToBlob(dataUrl);
-    const form = new FormData();
-    form.append("photo", blob, file.name || "photo.jpg");
-    const upload = await apiFetch("/api/uploads/image", {
-      method: "POST",
-      body: form,
-    });
-    return { dataUrl, upload };
-  };
-
-  const buildUploadedPhotoEntry = (file, dataUrl, upload) => ({
-    name: file.name,
-    type: upload?.mime_type || file.type,
-    size: Number(upload?.size_bytes ?? 0),
-    dataUrl,
-    previewUrl: dataUrl,
-    upload,
-    updatedAt: new Date().toISOString(),
-  });
-
-  const validateImageFile = (file) => {
-    if (!file) return "No file selected";
-    if (!String(file.type || "").startsWith("image/")) return "Please select an image file";
-    if (file.size > MAX_IMAGE_BYTES) return "Image must be 5MB or smaller";
-    return "";
-  };
-
-  const handleImagePick = async (kind, file) => {
+  const handleImagePick = async (file) => {
     const validation = validateImageFile(file);
     if (validation) {
       showBanner("error", validation);
@@ -258,194 +102,11 @@ export default function Step1RiderDetails() {
       const { dataUrl, upload } = await uploadCompressedImage(file);
       const payload = buildUploadedPhotoEntry(file, dataUrl, upload);
 
-      if (kind === "riderPhoto") {
-        updateForm({ riderPhoto: payload });
-        showBanner("success", "Rider photo uploaded.");
-      } else {
-        updateForm({ governmentId: payload });
-        showBanner("success", "ID card uploaded.");
-      }
+      updateForm({ governmentId: payload });
+      showBanner("success", "ID card uploaded.");
     } catch (e) {
       showBanner("error", e?.message || "Unable to upload image");
     }
-  };
-
-  const handlePreRidePhotosPick = async (files) => {
-    const list = Array.from(files || []);
-    if (list.length === 0) return;
-
-    const current = Array.isArray(formData.preRidePhotos)
-      ? formData.preRidePhotos
-      : [];
-    const remainingSlots = Math.max(0, 8 - current.length);
-
-    if (remainingSlots === 0) {
-      showBanner("warning", "You can upload up to 8 pre-ride photos.");
-      return;
-    }
-
-    const picked = list.slice(0, remainingSlots);
-
-    try {
-      const uploads = await Promise.all(
-        picked.map(async (file) => {
-          const validation = validateImageFile(file);
-          if (validation) throw new Error(validation);
-          const { dataUrl, upload } = await uploadCompressedImage(file);
-          return buildUploadedPhotoEntry(file, dataUrl, upload);
-        })
-      );
-
-      updateForm({ preRidePhotos: [...current, ...uploads] });
-      showBanner("success", "Pre-ride photos uploaded.");
-    } catch (e) {
-      showBanner("error", e?.message || "Unable to upload pre-ride photos");
-    }
-  };
-
-  const stopRiderCamera = () => {
-    if (riderStreamRef.current) {
-      riderStreamRef.current.getTracks().forEach((t) => t.stop());
-      riderStreamRef.current = null;
-    }
-    if (riderVideoRef.current) {
-      riderVideoRef.current.srcObject = null;
-    }
-    setCameraActive(false);
-  };
-
-  const describeCameraError = (error) => {
-    const name = error?.name;
-
-    if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-      return "Camera permission was denied. Please allow camera access in your browser settings and try again.";
-    }
-    if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-      return "No camera device was found. If you're on a PC without a webcam (or using Remote Desktop), upload a photo instead.";
-    }
-    if (name === "NotReadableError" || name === "TrackStartError") {
-      return "Camera is already in use by another app/tab. Close other apps using the camera and try again.";
-    }
-    if (name === "OverconstrainedError") {
-      return "Your camera doesn't support the requested settings. Trying a compatible mode may help.";
-    }
-    if (name === "SecurityError") {
-      return "Camera access is blocked due to browser security settings.";
-    }
-
-    return error?.message || "Unable to access camera. Please allow permission.";
-  };
-
-  const startRiderCamera = async (targetFacingMode) => {
-    setCameraError("");
-
-    // Most browsers require HTTPS (secure context) for camera access.
-    // localhost/loopback hosts are treated as secure.
-    const host =
-      typeof window !== "undefined" ? String(window.location?.hostname || "") : "";
-    const isLoopbackHost =
-      host === "localhost" || host === "127.0.0.1" || host === "::1";
-    if (
-      typeof window !== "undefined" &&
-      window.isSecureContext === false &&
-      !isLoopbackHost
-    ) {
-      setCameraError(
-        "Camera requires HTTPS. Please open this site using https:// (or use localhost during development)."
-      );
-      return;
-    }
-
-    if (!navigator?.mediaDevices?.getUserMedia) {
-      setCameraError("Camera is not supported in this browser.");
-      return;
-    }
-
-    const desiredFacingMode = targetFacingMode || facingMode;
-    setFacingMode(desiredFacingMode);
-
-    try {
-      // Stop any previous stream before starting a new one.
-      stopRiderCamera();
-
-      const tryGetStream = async (constraints) => {
-        return await navigator.mediaDevices.getUserMedia(constraints);
-      };
-
-      // Prefer the front camera, but fall back if constraints aren't supported.
-      const fallbackFacingMode =
-        desiredFacingMode === "user" ? "environment" : "user";
-
-      let stream;
-      try {
-        stream = await tryGetStream({
-          video: { facingMode: { ideal: desiredFacingMode } },
-          audio: false,
-        });
-      } catch (firstError) {
-        try {
-          stream = await tryGetStream({
-            video: { facingMode: { ideal: fallbackFacingMode } },
-            audio: false,
-          });
-        } catch (secondError) {
-          try {
-            stream = await tryGetStream({
-              video: true,
-              audio: false,
-            });
-          } catch (thirdError) {
-            throw thirdError || secondError || firstError;
-          }
-        }
-      }
-
-      riderStreamRef.current = stream;
-      setCameraActive(true);
-      const trackFacingMode =
-        stream
-          ?.getVideoTracks?.()?.[0]
-          ?.getSettings?.()?.facingMode;
-      if (trackFacingMode) {
-        setFacingMode(trackFacingMode);
-      }
-    } catch (e) {
-      setCameraActive(false);
-      setCameraError(describeCameraError(e));
-    }
-  };
-
-  const handleFlipCamera = () => {
-    const nextFacingMode = facingMode === "user" ? "environment" : "user";
-    startRiderCamera(nextFacingMode);
-  };
-
-  const captureRiderPhoto = () => {
-    const video = riderVideoRef.current;
-    if (!video) return;
-
-    const width = video.videoWidth || 640;
-    const height = video.videoHeight || 480;
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, width, height);
-
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
-    updateForm({
-      riderPhoto: {
-        name: `rider-photo-${Date.now()}.jpg`,
-        type: "image/jpeg",
-        size: null,
-        dataUrl,
-        updatedAt: new Date().toISOString(),
-      },
-    });
-    showBanner("success", "Rider photo captured.");
-    stopRiderCamera();
   };
 
   const handleRetainLookup = async ({ phone, aadhaar } = {}) => {
@@ -639,12 +300,6 @@ export default function Step1RiderDetails() {
       navigate("../step-2");
     }
   };
-
-  const nextFacingLabel = facingMode === "user" ? "rear-facing" : "front-facing";
-  const videoStyle =
-    cameraActive && facingMode === "user"
-      ? { transform: "scaleX(-1)" }
-      : undefined;
 
   return (
     <div className="space-y-5">
@@ -842,225 +497,6 @@ export default function Step1RiderDetails() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div className="rounded-xl border border-evegah-border bg-gray-50 p-4 space-y-2">
-            <h3 className="font-medium text-evegah-text">Rider Photo</h3>
-            <p className="text-sm text-gray-500">
-              Capture a clear, forward-facing photo.
-            </p>
-
-            {getImageDataUrl(formData.riderPhoto) ? (
-              <div className="mt-3">
-                <div className="rounded-xl border border-evegah-border bg-white p-3">
-                  <button
-                    type="button"
-                    className="block w-full"
-                    onClick={() =>
-                      setImagePreview({
-                        src: getImageDataUrl(formData.riderPhoto),
-                        title: "Rider Photo",
-                      })
-                    }
-                    title="Open preview"
-                  >
-                    <img
-                      src={getImageDataUrl(formData.riderPhoto)}
-                      alt="Rider"
-                      className="h-44 w-full rounded-lg object-cover"
-                    />
-                  </button>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="btn-outline"
-                    onClick={async () => {
-                      updateForm({ riderPhoto: null });
-                      await startRiderCamera();
-                    }}
-                  >
-                    <Camera size={16} />
-                    <span className="ml-2">Retake Photo</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-muted"
-                    onClick={() => updateForm({ riderPhoto: null })}
-                  >
-                    Remove
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-3 rounded-xl border border-evegah-border bg-white p-4">
-                <input
-                  ref={riderPhotoInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleImagePick("riderPhoto", file);
-                    e.target.value = "";
-                  }}
-                />
-
-                {cameraActive ? (
-                  <div className="space-y-3">
-                    <div className="relative">
-                      <video
-                        ref={riderVideoRef}
-                        className="w-full rounded-lg border border-evegah-border bg-black/90"
-                        style={videoStyle}
-                        playsInline
-                        muted
-                        autoPlay
-                      />
-                      <button
-                        type="button"
-                        aria-label={`Flip to ${nextFacingLabel} camera`}
-                        className="absolute top-3 right-3 h-10 w-10 rounded-full border border-white bg-white/90 shadow text-evegah-text flex items-center justify-center"
-                        onClick={handleFlipCamera}
-                      >
-                        <RotateCcw size={18} />
-                      </button>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className="btn-primary"
-                        onClick={captureRiderPhoto}
-                      >
-                        <Camera size={16} />
-                        <span className="ml-2">Capture Photo</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-muted"
-                        onClick={stopRiderCamera}
-                      >
-                        Stop Camera
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Camera size={16} />
-                      Take a live photo using the camera.
-                    </div>
-
-                    {cameraError ? (
-                      <p className="text-xs text-red-600 mt-2">{cameraError}</p>
-                    ) : null}
-
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className="btn-primary"
-                        onClick={startRiderCamera}
-                      >
-                        <span className="ml-2">Start Camera</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        className="btn-outline"
-                        onClick={() => riderPhotoInputRef.current?.click()}
-                      >
-                        <Upload size={16} />
-                        <span className="ml-2">Upload Photo</span>
-                      </button>
-                    </div>
-                    <p className="text-xs text-gray-500">
-                      Allow camera permission when prompted.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-xl border border-evegah-border bg-gray-50 p-4 space-y-3">
-            <h3 className="font-medium text-evegah-text">Pre-ride Photos (Upload)</h3>
-            <p className="text-sm text-gray-500">
-              Upload photos of the vehicle before handing over to the rider.
-            </p>
-
-            <input
-              ref={preRidePhotosInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                handlePreRidePhotosPick(e.target.files);
-                e.target.value = "";
-              }}
-            />
-
-            <button
-              type="button"
-              className="w-full border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-sm text-gray-500 p-5 hover:bg-gray-50 transition"
-              onClick={() => preRidePhotosInputRef.current?.click()}
-            >
-              <Upload size={20} />
-              <p className="mt-2 font-medium">
-                {Array.isArray(formData.preRidePhotos) && formData.preRidePhotos.length > 0
-                  ? "Add more photos"
-                  : "Click to upload photos"}
-              </p>
-              <p className="text-xs">PNG, JPG, WEBP (max 5MB each, up to 8)</p>
-            </button>
-
-            {Array.isArray(formData.preRidePhotos) && formData.preRidePhotos.length > 0 ? (
-              <div className="grid grid-cols-4 gap-2">
-                {formData.preRidePhotos.slice(0, 8).map((p, idx) => (
-                  <div
-                    key={`${p?.name || "photo"}-${idx}`}
-                    className="relative rounded-lg overflow-hidden border border-evegah-border bg-white"
-                  >
-                    <button
-                      type="button"
-                      className="block w-full"
-                      onClick={() =>
-                        setImagePreview({
-                          src: getImageDataUrl(p),
-                          title: "Pre-ride Photo",
-                        })
-                      }
-                      title="Open preview"
-                    >
-                      <img
-                        src={getImageDataUrl(p)}
-                        alt="Pre-ride"
-                        className="h-16 w-full object-cover"
-                      />
-                    </button>
-                    <button
-                      type="button"
-                      className="absolute top-1 right-1 h-6 w-6 rounded-full border border-evegah-border bg-white/90 text-gray-700 hover:bg-white"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const next = [...formData.preRidePhotos];
-                        next.splice(idx, 1);
-                        updateForm({ preRidePhotos: next });
-                      }}
-                      title="Remove"
-                      aria-label="Remove photo"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-gray-500">No pre-ride photos uploaded yet.</p>
-            )}
-          </div>
-        </div>
-
         <div className="rounded-xl border border-evegah-border bg-white p-4 space-y-4">
           <h3 className="font-medium text-evegah-text">Identity Verification</h3>
 
@@ -1071,9 +507,9 @@ export default function Step1RiderDetails() {
                 <input
                   className="input flex-1"
                   placeholder="XXXX-XXXX-XXXX"
-                  value={formData.aadhaar}
+                  value={formatAadhaarDisplay(formData.aadhaar)}
                   inputMode="numeric"
-                  maxLength={12}
+                  maxLength={14}
                   onChange={(e) => {
                     const digits = sanitizeNumericInput(e.target.value, 12);
                     updateForm({ aadhaar: digits, aadhaarVerified: false });
@@ -1122,18 +558,18 @@ export default function Step1RiderDetails() {
             </div>
 
             <div>
-              <input
-                ref={governmentIdInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  handleImagePick("governmentId", file);
-                  e.target.value = "";
-                }}
-              />
+                <input
+                  ref={governmentIdInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    handleImagePick(file);
+                    e.target.value = "";
+                  }}
+                />
 
               <button
                 type="button"

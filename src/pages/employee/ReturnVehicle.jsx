@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import EmployeeLayout from "../../components/layouts/EmployeeLayout";
 import { apiFetch } from "../../config/api";
@@ -10,7 +10,8 @@ const sanitizeNumericInput = (value, maxLength) =>
 
 export default function ReturnVehicle() {
   const [mobile, setMobile] = useState("");
-  const [batteryId, setBatteryId] = useState("");
+  const [vehicleId, setVehicleId] = useState("");
+  const [riderName, setRiderName] = useState("");
   const [conditionNotes, setConditionNotes] = useState("");
   const [feedback, setFeedback] = useState("");
   const [photos, setPhotos] = useState([]);
@@ -20,10 +21,20 @@ export default function ReturnVehicle() {
   const [submitting, setSubmitting] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [submitError, setSubmitError] = useState("");
+  const [depositReturnedSelection, setDepositReturnedSelection] = useState(null);
+  const [depositSelectionError, setDepositSelectionError] = useState("");
   const [rental, setRental] = useState(null);
 
+  useEffect(() => {
+    setDepositReturnedSelection(
+      rental ? Boolean(rental.deposit_returned) : null
+    );
+    setDepositSelectionError("");
+  }, [rental]);
+
   const mobileDigits = useMemo(() => sanitizeNumericInput(mobile, 10), [mobile]);
-  const batteryText = String(batteryId || "").trim();
+  const vehicleText = String(vehicleId || "").trim();
+  const riderNameText = String(riderName || "").trim();
 
   const shortId = (value) => {
     const s = String(value || "").trim();
@@ -32,13 +43,31 @@ export default function ReturnVehicle() {
     return `${s.slice(0, 8)}…${s.slice(-4)}`;
   };
 
+  const formatCurrency = (amount) => `₹${Number(amount || 0).toLocaleString("en-IN")}`;
+
+  const formatDateTime = (value) => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toLocaleString();
+  };
+
+  const depositAmountValue = rental?.deposit_amount ?? 0;
+  const depositReturned = Boolean(rental?.deposit_returned);
+  const depositReturnedAmount = Number(rental?.deposit_returned_amount ?? 0);
+  const depositReturnedAtLabel = formatDateTime(rental?.deposit_returned_at);
+  const depositStatusLine = depositReturned
+    ? `Refunded ${formatCurrency(depositReturnedAmount || depositAmountValue)}${depositReturnedAtLabel ? ` on ${depositReturnedAtLabel}` : ""}`
+    : "Pending refund";
+  const depositStatusClass = depositReturned ? "text-green-600" : "text-yellow-600";
+
   const handleSearch = async () => {
     setSearchError("");
     setSubmitError("");
     setRental(null);
 
-    if (!mobileDigits && !batteryText) {
-      setSearchError("Enter rider mobile number or battery id.");
+    if (!mobileDigits && !vehicleText && !riderNameText) {
+      setSearchError("Enter rider mobile number, vehicle id, or rider name.");
       return;
     }
 
@@ -46,7 +75,8 @@ export default function ReturnVehicle() {
     try {
       const params = new URLSearchParams();
       if (mobileDigits) params.set("mobile", mobileDigits);
-      if (batteryText) params.set("battery", batteryText);
+      if (vehicleText) params.set("vehicle", vehicleText);
+      if (riderNameText) params.set("name", riderNameText);
       const found = await apiFetch(`/api/rentals/active?${params.toString()}`);
       if (!found) {
         setSearchError("No active rental found for the given details.");
@@ -62,6 +92,7 @@ export default function ReturnVehicle() {
 
   const handleSubmitReturn = async () => {
     setSubmitError("");
+    setDepositSelectionError("");
 
     if (!rental?.id) {
       setSubmitError("Search and select an active rental first.");
@@ -75,6 +106,10 @@ export default function ReturnVehicle() {
       setSubmitError("Upload at least one return photo.");
       return;
     }
+    if (depositReturnedSelection === null) {
+      setDepositSelectionError("Mark whether the deposit was returned or not.");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -84,6 +119,7 @@ export default function ReturnVehicle() {
       if (String(feedback || "").trim()) {
         form.set("feedback", String(feedback).trim());
       }
+      form.set("depositReturned", depositReturnedSelection ? "true" : "false");
       (Array.isArray(photos) ? photos : []).forEach((file) => {
         form.append("photos", file);
       });
@@ -103,7 +139,8 @@ export default function ReturnVehicle() {
       setPhotos([]);
       setPhotoInputKey((k) => k + 1);
       setMobile("");
-      setBatteryId("");
+      setVehicleId("");
+      setRiderName("");
     } catch (e) {
       setSubmitError(String(e?.message || e || "Unable to submit return"));
     } finally {
@@ -135,7 +172,18 @@ export default function ReturnVehicle() {
         </div>
 
         <div className="card space-y-4">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            
+            <div>
+              <label className="label">Rider Name</label>
+              <input
+                className="input"
+                placeholder="Enter rider name"
+                value={riderName}
+                onChange={(e) => setRiderName(e.target.value)}
+              />
+            </div>
+            
             <div>
               <label className="label">Rider Mobile Number</label>
               <input
@@ -149,14 +197,16 @@ export default function ReturnVehicle() {
             </div>
 
             <div>
-              <label className="label">Battery ID</label>
+              <label className="label">Vehicle ID</label>
               <input
                 className="input"
-                placeholder="Enter battery id"
-                value={batteryId}
-                onChange={(e) => setBatteryId(e.target.value)}
+                placeholder="Enter vehicle id"
+                value={vehicleId}
+                onChange={(e) => setVehicleId(e.target.value)}
               />
             </div>
+
+            
 
             <div className="flex items-end">
               <button
@@ -174,15 +224,16 @@ export default function ReturnVehicle() {
 
           {rental ? (
             <div className="rounded-xl border border-evegah-border bg-gray-50 p-4">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
                 <div>
                   <p className="text-xs text-gray-500">Rider</p>
                   <p className="text-sm text-evegah-text font-medium">{rental.rider_full_name || "-"}</p>
                   <p className="mt-0.5 text-xs text-gray-500">Rental: {shortId(rental.id)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Battery ID</p>
-                  <p className="text-sm text-evegah-text font-medium">{rental.current_battery_id || rental.battery_id || "-"}</p>
+                  <p className="text-xs text-gray-500">Vehicle ID</p>
+                  <p className="text-sm text-evegah-text font-medium">{rental.vehicle_number || rental.vehicle_id || "-"}</p>
+                  <p className="text-xs text-gray-500 mt-1">Battery: {rental.current_battery_id || rental.battery_id || "-"}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Start</p>
@@ -193,6 +244,11 @@ export default function ReturnVehicle() {
                 <div>
                   <p className="text-xs text-gray-500">Total</p>
                   <p className="text-sm text-evegah-text font-medium">{rental.total_amount ?? "-"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Deposit</p>
+                  <p className="text-sm text-evegah-text font-medium">{formatCurrency(depositAmountValue)}</p>
+                  <p className={`text-xs ${depositStatusClass}`}>{depositStatusLine}</p>
                 </div>
               </div>
             </div>
@@ -250,7 +306,7 @@ export default function ReturnVehicle() {
               </p>
             </div>
 
-            <div>
+            <div className="space-y-2">
               <label className="label">
                 Vehicle Condition <span className="text-red-500">*</span>
               </label>
@@ -261,6 +317,24 @@ export default function ReturnVehicle() {
                 value={conditionNotes}
                 onChange={(e) => setConditionNotes(e.target.value)}
               />
+            </div>
+
+            <div className="space-y-2">
+              <label className="label">Deposit Returned?</label>
+              <select
+                className="input"
+                value={depositReturnedSelection === null ? "" : depositReturnedSelection ? "returned" : "not-returned"}
+                onChange={(e) => {
+                  const val = e.target.value === "returned" ? true : e.target.value === "not-returned" ? false : null;
+                  setDepositReturnedSelection(val);
+                  setDepositSelectionError("");
+                }}
+              >
+                <option value="">Choose an option</option>
+                <option value="returned">Yes, deposit returned</option>
+                <option value="not-returned">No, deposit not returned</option>
+              </select>
+              {depositSelectionError ? <p className="error">{depositSelectionError}</p> : null}
             </div>
 
             <div className="md:col-span-2">

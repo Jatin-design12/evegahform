@@ -5,15 +5,7 @@ import EditRiderModal from "./EditRiderModal";
 import DeleteModal from "./DeleteModal";
 import RiderProfileModal from "./RiderProfileModal";
 
-import {
-  Search,
-  Eye,
-  Edit,
-  Trash2,
-  ChevronLeft,
-  ChevronRight,
-  Download,
-} from "lucide-react";
+import { Search, Eye, Edit, Trash2, Download } from "lucide-react";
 
 import { useEffect, useState } from "react";
 
@@ -27,9 +19,6 @@ export default function RidersTable() {
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
 
   // Pagination
-  const [page, setPage] = useState(1);
-  const limit = 10;
-  const [totalCount, setTotalCount] = useState(0);
 
   // Summary stats
   const [totalRiders, setTotalRiders] = useState(0);
@@ -57,23 +46,21 @@ export default function RidersTable() {
     setLoading(true);
 
     const params = new URLSearchParams();
-    params.set("page", String(page));
-    params.set("limit", String(limit));
     if (search.trim()) params.set("search", search.trim());
     if (rideStatus && rideStatus !== "all") params.set("rideStatus", rideStatus);
     if (dateRange.start) params.set("start", dateRange.start);
     if (dateRange.end) params.set("end", dateRange.end);
 
-    const result = await apiFetch(`/api/riders?${params.toString()}`);
+    const query = params.toString();
+    const result = await apiFetch(`/api/riders${query ? `?${query}` : ""}`);
     setRiders(result?.data || []);
-    setTotalCount(result?.totalCount || 0);
     setLoading(false);
   }
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadRiders();
-  }, [page, search, rideStatus, dateRange]);
+  }, [search, rideStatus, dateRange]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -87,11 +74,7 @@ export default function RidersTable() {
     }, 15000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, search, rideStatus, dateRange]);
-
-  function totalPages() {
-    return Math.ceil(totalCount / limit);
-  }
+  }, [search, rideStatus, dateRange]);
 
   function exportCSV(data) {
     const csv =
@@ -347,28 +330,6 @@ export default function RidersTable() {
           )}
         </div>
 
-        {/* PAGINATION */}
-        <div className="flex justify-center mt-6 items-center gap-4">
-          <button
-            disabled={page === 1}
-            onClick={() => setPage(page - 1)}
-            className="p-2 bg-gray-200 rounded disabled:opacity-50"
-          >
-            <ChevronLeft size={18} />
-          </button>
-
-          <span>
-            Page <b>{page}</b> of {totalPages()}
-          </span>
-
-          <button
-            disabled={page === totalPages()}
-            onClick={() => setPage(page + 1)}
-            className="p-2 bg-gray-200 rounded disabled:opacity-50"
-          >
-            <ChevronRight size={18} />
-          </button>
-        </div>
       </main>
 
       {/* MODALS */}

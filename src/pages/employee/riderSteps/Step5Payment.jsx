@@ -6,7 +6,7 @@ import { apiFetch } from "../../../config/api";
 import { downloadRiderReceiptPdf } from "../../../utils/riderReceiptPdf";
 import useAuth from "../../../hooks/useAuth";
 
-export default function Step4Payment() {
+export default function Step5Payment() {
   const { formData, resetForm } = useRiderForm();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -18,10 +18,19 @@ export default function Step4Payment() {
   const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
   const [whatsAppStatus, setWhatsAppStatus] = useState("");
 
-  const upiId = import.meta.env.VITE_EVEGAH_UPI_ID || "";
+  const configuredUpiId = import.meta.env.VITE_EVEGAH_UPI_ID;
+  const defaultUpiId = "temp.evegah@okaxis";
   const payeeName = import.meta.env.VITE_EVEGAH_PAYEE_NAME || "Evegah";
 
   const amount = Number(formData.totalAmount || 0);
+  const cashAmount = Number(formData.cashAmount || 0);
+  const onlineAmount = Number(formData.onlineAmount || 0);
+  const totalPaid = cashAmount + onlineAmount;
+  const paymentModeLabel = formData.paymentMode
+    ? formData.paymentMode === "split"
+      ? "Split (Cash + Online)"
+      : `${formData.paymentMode.charAt(0).toUpperCase()}${formData.paymentMode.slice(1)}`
+    : "-";
 
   const prepareDocumentForSubmission = (value) => {
     if (!value) return null;
@@ -45,20 +54,27 @@ export default function Step4Payment() {
     return null;
   };
 
+  const effectiveUpiId = configuredUpiId || defaultUpiId;
   const upiPayload = useMemo(() => {
-    if (!upiId) return "";
+    if (!effectiveUpiId) return "";
     const params = new URLSearchParams({
-      pa: upiId,
+      pa: effectiveUpiId,
       pn: payeeName,
       am: amount ? String(amount) : "",
       cu: "INR",
     });
     return `upi://pay?${params.toString()}`;
-  }, [upiId, payeeName, amount]);
+  }, [effectiveUpiId, payeeName, amount]);
+
 
   const handleSubmit = async () => {
     setSubmitError("");
     setWhatsAppStatus("");
+
+    if (totalPaid !== amount) {
+      setSubmitError("Cash + online payment totals must equal the total amount.");
+      return;
+    }
 
     const riderPhotoPayload = prepareDocumentForSubmission(formData.riderPhoto);
     const governmentIdPayload = prepareDocumentForSubmission(formData.governmentId);
@@ -137,6 +153,10 @@ export default function Step4Payment() {
               issued_by_name: formData.issuedByName || null,
               employee_uid: user?.uid || null,
               employee_email: user?.email || null,
+              paymentBreakdown: {
+                cash: cashAmount,
+                online: onlineAmount,
+              },
             },
           },
           documents: {
@@ -228,28 +248,44 @@ export default function Step4Payment() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-xl border border-evegah-border bg-gray-50 p-4 space-y-3">
-          <h4 className="font-medium text-evegah-text">Payment QR</h4>
-          <p className="text-sm text-gray-500">
-            Scan to pay via UPI.
-          </p>
-
-          {upiPayload ? (
-            <div className="rounded-xl border border-evegah-border bg-white p-4 inline-flex">
-              <QRCodeCanvas value={upiPayload} size={180} />
-            </div>
-          ) : (
-            <p className="text-sm text-red-600">
-              UPI QR is not configured. Set `VITE_EVEGAH_UPI_ID` in your `.env`.
+        <div>
+          <div className="rounded-xl border border-evegah-border bg-gray-50 p-4 space-y-3">
+            <h4 className="font-medium text-evegah-text">Payment QR</h4>
+            <p className="text-sm text-gray-500">
+              Scan to pay via UPI.
             </p>
-          )}
 
-          <div className="text-sm text-evegah-text space-y-1">
-            <div>
-              <span className="text-gray-500">Total Amount:</span> {amount}
-            </div>
-            <div>
-              <span className="text-gray-500">Payment Mode:</span> {String(formData.paymentMode || "-")}
+            {upiPayload && (
+              <div className="rounded-xl border border-evegah-border bg-white p-4 inline-flex">
+                <QRCodeCanvas value={upiPayload} size={180} />
+              </div>
+            )}
+            {!configuredUpiId ? (
+              <p className="text-sm text-red-600">
+                UPI QR is not configured, showing a temporary placeholder. Set `VITE_EVEGAH_UPI_ID` in your `.env` to use the real business QR.
+              </p>
+            ) : null}
+
+            <div className="text-sm text-evegah-text space-y-1">
+              <div>
+                <span className="text-gray-500">Total Amount:</span> {amount}
+              </div>
+              <div>
+                <span className="text-gray-500">Payment Mode:</span> {paymentModeLabel}
+              </div>
+              {formData.paymentMode === "split" ? (
+                <>
+                  <div>
+                    <span className="text-gray-500">Cash Paid:</span> {cashAmount}
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Online Paid:</span> {onlineAmount}
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Total Paid:</span> {totalPaid}
+                  </div>
+                </>
+              ) : null}
             </div>
           </div>
         </div>
@@ -265,11 +301,11 @@ export default function Step4Payment() {
               <button
                 type="button"
                 className="btn-outline"
-                onClick={() => navigate("../step-3")}
+                onClick={() => navigate("../step-4")}
                 disabled={submitting}
                 aria-disabled={submitting}
               >
-                ← Back
+                {"\u2190"} Back
               </button>
 
               <button type="button" className="btn-muted" onClick={() => window.print()}>

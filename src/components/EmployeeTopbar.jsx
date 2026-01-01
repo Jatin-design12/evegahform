@@ -15,23 +15,17 @@ const navItem =
 const active = "bg-brand-light text-brand-dark font-medium";
 const inactive = "text-gray-600 hover:bg-gray-100";
 
-export default function EmployeeTopbar({ onSidebarToggle, onLogout, showSidebarButton = true }) {
+export default function EmployeeTopbar({
+  onSidebarToggle,
+  showSidebarButton = true,
+  isSidebarOpen = false,
+  onLogout = () => {},
+}) {
 
   return (
-    <header className="bg-white border-b border-evegah-border">
+    <header className="sticky top-0 z-40 bg-white border-b border-evegah-border">
       <div className="px-4 sm:px-8 py-3 sm:py-4 grid grid-cols-[auto,1fr,auto] items-center gap-3 sm:gap-4">
-        <div className="flex items-center gap-3 flex-shrink-0">
-          {showSidebarButton ? (
-            <button
-              type="button"
-              className="sm:hidden w-11 h-11 rounded-2xl border border-evegah-border bg-white grid place-items-center text-gray-700"
-              aria-label="Open menu"
-              onClick={onSidebarToggle}
-            >
-              <Menu size={18} />
-            </button>
-          ) : null}
-
+        <div className="flex items-center gap-3 sm:flex-shrink-0">
           <img src={logo} className="h-14 sm:h-24" alt="eVEGAH" />
         </div>
 
@@ -89,15 +83,29 @@ export default function EmployeeTopbar({ onSidebarToggle, onLogout, showSidebarB
             </NavLink>
           </div>
         </nav>
-
-        <button
-          type="button"
-          className="inline-flex items-center gap-2 text-red-600 text-base px-4 py-3 rounded-2xl hover:bg-red-50 transition flex-shrink-0"
-          onClick={onLogout}
-        >
-          <LogOut size={16} />
-          <span>Logout</span>
-        </button>
+        <div className="flex items-center justify-end gap-2">
+          {showSidebarButton ? (
+            <button
+              type="button"
+              className={`sm:hidden h-11 w-11 rounded-2xl border border-evegah-border bg-white grid place-items-center text-gray-700 transition-all duration-200 focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-brand-primary ${
+                isSidebarOpen ? "shadow-lg border-brand-primary" : ""
+              }`}
+              aria-label={isSidebarOpen ? "Close menu" : "Open menu"}
+              aria-expanded={isSidebarOpen}
+              onClick={onSidebarToggle}
+            >
+              <Menu size={18} className={`transition-transform duration-200 ${isSidebarOpen ? "rotate-90" : ""}`} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="hidden sm:inline-flex items-center gap-2 rounded-2xl border border-evegah-border bg-white px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-red-500"
+            onClick={onLogout}
+          >
+            <LogOut size={18} />
+            <span className="hidden sm:inline">Logout</span>
+          </button>
+        </div>
       </div>
     </header>
   );

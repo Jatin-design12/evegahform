@@ -1786,6 +1786,7 @@ app.post("/api/returns/submit", upload.array("photos", 10), async (req, res) => 
 app.get("/api/rentals/active", async (req, res) => {
   const mobile = toDigits(req.query.mobile || "", 10);
   const vehicle = String(req.query.vehicle || "").trim();
+  const riderName = String(req.query.name || "").trim();
   const battery = String(req.query.battery || req.query.batteryId || "").trim();
 
   try {
@@ -1822,6 +1823,10 @@ app.get("/api/rentals/active", async (req, res) => {
               )),'[^a-z0-9]+','','g') = ${push(batteryNorm)}`
       );
     }
+    if (riderName) {
+      const namePattern = `%${riderName.toLowerCase()}%`;
+      where.push(`lower(coalesce(rd.full_name,'')) like ${push(namePattern)}`);
+    }
     if (mobile) {
       where.push(
         `rider_id in (
@@ -1836,6 +1841,9 @@ app.get("/api/rentals/active", async (req, res) => {
               rd.full_name as rider_full_name,
               rd.mobile as rider_mobile,
               coalesce(r.meta->>'expected_end_time','') as expected_end_time,
+              coalesce(r.meta->>'deposit_returned','false')::boolean as deposit_returned,
+              coalesce(r.meta->>'deposit_returned_amount','0')::numeric as deposit_returned_amount,
+              coalesce(r.meta->>'deposit_returned_at','') as deposit_returned_at,
               coalesce(
                 (
                   select s.battery_in

@@ -22,12 +22,10 @@ import BatterySwaps from "./pages/employee/battery-swaps/BatterySwaps";
 /* PROTECTED ROUTES */
 import ProtectedRouteAdmin from "./components/ProtectedRouteAdmin";
 import ProtectedRouteEmployee from "./components/ProtectedRouteEmployee";
-import DemoWatermark from "./components/DemoWatermark";
 
 export default function App() {
   return (
     <>
-      <DemoWatermark />
       <div className="relative z-10 min-h-screen pb-16">
         <BrowserRouter>
           <Routes>
@@ -177,9 +175,6 @@ export default function App() {
           </Routes>
         </BrowserRouter>
       </div>
-      <footer className="demo-footer">
-        This project is under development and currently owned by @NetSec InfoTech.
-      </footer>
     </>
   );
 }

@@ -19,7 +19,7 @@ const inactive =
 
 export default function EmployeeSidebar({ isMobile = false, onClose, onLogout }) {
   return (
-    <aside className="bg-white border-evegah-border h-full flex flex-col">
+    <aside className="relative bg-white border-evegah-border h-full flex flex-col">
       {/* LOGO */}
       <div className="flex items-center justify-between p-5">
         <img src={logo} className="h-24" alt="eVEGAH" />
@@ -68,6 +68,17 @@ export default function EmployeeSidebar({ isMobile = false, onClose, onLogout })
           Logout
         </button>
       </div>
+
+      {isMobile && (
+        <button
+          type="button"
+          aria-label="Close navigation menu"
+          className="absolute -right-3 top-1/2 flex h-20 w-4 -translate-y-1/2 items-center justify-center rounded-l-full bg-evegah-primary text-white shadow-lg focus-visible:outline focus-visible:ring"
+          onClick={() => onClose?.()}
+        >
+          <span className="block h-12 w-px bg-white" />
+        </button>
+      )}
     </aside>
   );
 }

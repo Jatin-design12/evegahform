@@ -57,12 +57,19 @@ export default function Step3Agreement() {
 
   return (
     <div className="space-y-6">
-      <div className="card space-y-5 mx-auto w-full max-w-5xl">
-        <h3 className="text-base font-semibold text-evegah-text">
-          3. Acknowledgment &amp; Signature
-        </h3>
 
-        <div className="space-y-3">
+      <div className="card space-y-6 mx-auto w-full max-w-5xl">
+        <header className="space-y-1">
+          
+          <h3 className="text-2xl font-semibold text-evegah-text">
+            Acknowledgment &amp; Signature
+          </h3>
+          <p className="text-sm text-evegah-muted">
+            Confirm the rider has read the rules, signed the agreement, and recorded the issuing staff name below.
+          </p>
+        </header>
+
+        <section className="space-y-4 rounded-2xl border border-evegah-border bg-white/80 p-4 shadow-sm">
           <label className="flex items-start gap-2 text-sm text-evegah-text font-medium">
             <input
               type="checkbox"
@@ -89,23 +96,30 @@ export default function Step3Agreement() {
                 disabled
               />
               <span>
-                I have read &amp; understands all the terms, conditions/Rules regulations on the back of this form and explained, and I voluntarily Agree to the terms of this agreement &amp; agree to return the E-bike in good condition. <span className="text-red-500">*</span>
+                I have read &amp; understand the Evegah E-Bike Rental Agreement: Rules and Regulations, and I agree to return the e-bike in good condition. <span className="text-red-500">*</span>
               </span>
             </label>
-            <button
-              type="button"
-              className="mt-2 inline-block text-sm text-evegah-primary hover:underline"
-              onClick={() => setTermsOpen(true)}
-            >
-              Evegah E-Bike Rental Agreement: Rules and Regulations
-            </button>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                className={`text-sm font-semibold ${hasAcceptedRules ? "text-emerald-600" : "text-red-600"} hover:underline`}
+                onClick={() => setTermsOpen(true)}
+              >
+                View the rules &amp; regulations
+              </button>
+              <span className={`text-xs ${hasAcceptedRules ? "text-emerald-600" : "text-red-600"}`}>
+                {hasAcceptedRules
+                  ? "Rules accepted — thank you for confirming."
+                  : "Please open the rules and tap Accept to continue."}
+              </span>
+            </div>
             {attempted && !hasAcceptedRules ? (
               <p className="error">Open the rules popup and tap Accept to continue.</p>
             ) : null}
           </div>
-        </div>
+        </section>
 
-        <div>
+        <section className="space-y-3 rounded-2xl border border-evegah-border bg-white p-5 shadow-lg">
           <label className="label">
             Rider Signature <span className="text-red-500">*</span>
           </label>
@@ -124,7 +138,7 @@ export default function Step3Agreement() {
           {attempted && !formData.riderSignature ? (
             <p className="error">Signature is required.</p>
           ) : null}
-        </div>
+        </section>
 
         <div>
           <p className="label">Date</p>

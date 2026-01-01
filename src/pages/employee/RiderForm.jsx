@@ -15,7 +15,8 @@ import useAuth from "../../hooks/useAuth";
 import Step1RiderDetails from "./riderSteps/Step1RiderDetails";
 import Step2Identity from "./riderSteps/Step2Identity";
 import Step3Agreement from "./riderSteps/Step3Agreement";
-import Step4Payment from "./riderSteps/Step4Payment";
+import Step4Photos from "./riderSteps/Step4Photos";
+import Step5Payment from "./riderSteps/Step5Payment";
 
 import { Check } from "lucide-react";
 
@@ -38,6 +39,11 @@ const STEPS = [
   },
   {
     path: "step-4",
+    title: "Photos",
+    description: "Capture rider and vehicle condition photos.",
+  },
+  {
+    path: "step-5",
     title: "Payment",
     description: "Record payment details and complete registration.",
   },
@@ -167,7 +173,7 @@ function RiderStepProgress() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {currentStepPath !== "step-4" ? (
+          {currentStepPath !== "step-5" ? (
             <button type="button" className="btn-muted" onClick={handleClearForm}>
               Clear Form
             </button>
@@ -215,7 +221,8 @@ export default function RiderForm() {
             <Route path="step-1" element={<Step1RiderDetails />} />
             <Route path="step-2" element={<Step2Identity />} />
             <Route path="step-3" element={<Step3Agreement />} />
-            <Route path="step-4" element={<Step4Payment />} />
+            <Route path="step-4" element={<Step4Photos />} />
+            <Route path="step-5" element={<Step5Payment />} />
           </Routes>
         </div>
       </RiderFormProvider>

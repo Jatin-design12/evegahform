@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import AdminSidebar from "../../components/admin/AdminSidebar";
 
-import { ChevronLeft, ChevronRight, Edit, Eye, Search, Trash2 } from "lucide-react";
+import { Edit, Eye, Search, Trash2 } from "lucide-react";
 
 import {
   adminBatterySwapsDaily,
@@ -43,9 +43,6 @@ export default function AdminBatterySwapsPage() {
   const [swapSearch, setSwapSearch] = useState("");
   const [swapRefresh, setSwapRefresh] = useState(0);
 
-  const [swapPage, setSwapPage] = useState(1);
-  const swapPageSize = 10;
-
   const [editingSwapId, setEditingSwapId] = useState("");
   const [swapDraft, setSwapDraft] = useState(null);
   const [swapBusy, setSwapBusy] = useState(false);
@@ -81,7 +78,7 @@ export default function AdminBatterySwapsPage() {
     setDetailsLoading(true);
     setDetailsRows([]);
     try {
-      const rows = await adminListBatterySwaps({ limit: 500, search: search || "" }).catch(() => []);
+      const rows = await adminListBatterySwaps({ search: search || "" }).catch(() => []);
       setDetailsRows(Array.isArray(rows) ? rows : []);
     } catch (e) {
       setError(String(e?.message || e || "Unable to load details"));
@@ -127,10 +124,10 @@ export default function AdminBatterySwapsPage() {
     setError("");
     try {
       const [swapRows, swapDaily, topBatteries, topVehicles] = await Promise.all([
-        adminListBatterySwaps({ limit: 200, search: swapSearch }).catch(() => []),
+        adminListBatterySwaps({ search: swapSearch }).catch(() => []),
         adminBatterySwapsDaily({ days: 14 }).catch(() => []),
-        adminBatterySwapsTopBatteries({ days: 30, limit: 8 }).catch(() => []),
-        adminBatterySwapsTopVehicles({ days: 30, limit: 20 }).catch(() => []),
+        adminBatterySwapsTopBatteries({ days: 30 }).catch(() => []),
+        adminBatterySwapsTopVehicles({ days: 30 }).catch(() => []),
       ]);
 
       setBatterySwaps(Array.isArray(swapRows) ? swapRows : []);
@@ -157,10 +154,6 @@ export default function AdminBatterySwapsPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [swapSearch, swapRefresh]);
-
-  useEffect(() => {
-    setSwapPage(1);
-  }, [swapSearch]);
 
   useEffect(() => {
     setSelectedSwapIds((prev) =>
@@ -343,23 +336,27 @@ export default function AdminBatterySwapsPage() {
     };
   }, [batterySwaps, batteryTopBatteriesData, batteryTopVehiclesData]);
 
-  const swapTotalPages = useMemo(() => {
-    const count = (batterySwaps || []).length;
-    return Math.max(1, Math.ceil(count / swapPageSize));
-  }, [batterySwaps, swapPageSize]);
+  const visibleSwaps = batterySwaps || [];
 
-  const pagedSwaps = useMemo(() => {
-    const start = (swapPage - 1) * swapPageSize;
-    return (batterySwaps || []).slice(start, start + swapPageSize);
-  }, [batterySwaps, swapPage, swapPageSize]);
-
-  const currentPageIds = useMemo(
-    () => pagedSwaps.map((row) => String(row?.id || "")),
-    [pagedSwaps]
+  const visibleSwapIds = useMemo(
+    () => visibleSwaps.map((row) => String(row?.id || "")),
+    [visibleSwaps]
   );
 
-  const allPageSelected = currentPageIds.length > 0 && currentPageIds.every((id) => selectedSwapIds.includes(id));
-  const somePageSelected = currentPageIds.some((id) => selectedSwapIds.includes(id));
+  const allVisibleSelected =
+    visibleSwapIds.length > 0 && visibleSwapIds.every((id) => selectedSwapIds.includes(id));
+
+  const toggleSelectVisible = () => {
+    if (allVisibleSelected) {
+      setSelectedSwapIds((prev) => prev.filter((id) => !visibleSwapIds.includes(id)));
+      return;
+    }
+    setSelectedSwapIds((prev) => {
+      const next = new Set(prev);
+      visibleSwapIds.forEach((id) => next.add(id));
+      return Array.from(next);
+    });
+  };
 
   return (
     <div className="flex min-h-screen bg-evegah-bg">
@@ -482,7 +479,7 @@ export default function AdminBatterySwapsPage() {
 
           {loading && (batterySwaps || []).length === 0 ? (
             <div className="p-6 text-center text-gray-500">Loading swaps…</div>
-          ) : pagedSwaps.length === 0 ? (
+          ) : visibleSwaps.length === 0 ? (
             <div className="p-6 text-center text-gray-500">No swaps found.</div>
           ) : (
             <div className="overflow-x-auto">
@@ -492,9 +489,9 @@ export default function AdminBatterySwapsPage() {
                     <th className="px-4 py-3 text-left w-12">
                       <input
                         type="checkbox"
-                        checked={allPageSelected}
-                        onChange={toggleSelectCurrentPage}
-                        aria-label="Select swaps on this page"
+                        checked={allVisibleSelected}
+                        onChange={toggleSelectVisible}
+                        aria-label="Select swaps"
                       />
                     </th>
                     <th className="px-4 py-3 text-left">Time</th>
@@ -507,7 +504,7 @@ export default function AdminBatterySwapsPage() {
                 </thead>
 
                 <tbody>
-                  {pagedSwaps.map((row) => (
+                  {visibleSwaps.map((row) => (
                     <tr key={row?.id} className="border-t hover:bg-gray-50">
                       <td className="px-4 py-3">
                         <input
@@ -582,32 +579,6 @@ export default function AdminBatterySwapsPage() {
             </div>
           )}
 
-          <div className="px-4 py-3 border-t flex items-center justify-between">
-            <div className="text-xs text-gray-600">
-              Page {swapPage} / {swapTotalPages}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="p-2 rounded border hover:bg-gray-50 disabled:opacity-50"
-                disabled={swapPage <= 1}
-                onClick={() => setSwapPage((p) => Math.max(1, p - 1))}
-                title="Previous"
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <button
-                type="button"
-                className="p-2 rounded border hover:bg-gray-50 disabled:opacity-50"
-                disabled={swapPage >= swapTotalPages}
-                onClick={() => setSwapPage((p) => Math.min(swapTotalPages, p + 1))}
-                title="Next"
-              >
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
         </div>
       </div>
 

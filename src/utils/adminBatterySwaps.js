@@ -27,9 +27,8 @@ async function apiFetch(path, options = {}) {
   return data;
 }
 
-export async function adminListBatterySwaps({ limit = 20, search = "", start = "", end = "" } = {}) {
+export async function adminListBatterySwaps({ search = "", start = "", end = "" } = {}) {
   const qs = new URLSearchParams();
-  if (limit) qs.set("limit", String(limit));
   if (search) qs.set("search", String(search));
   if (start) qs.set("start", String(start));
   if (end) qs.set("end", String(end));
@@ -63,24 +62,23 @@ export async function adminBatterySwapsDaily({ days = 14 } = {}) {
   return apiFetch(`/api/admin/battery-swaps/daily?${qs}`);
 }
 
-export async function adminBatterySwapsTopBatteries({ days = 30, limit = 6 } = {}) {
-  const qs = new URLSearchParams({ days: String(days), limit: String(limit) }).toString();
+export async function adminBatterySwapsTopBatteries({ days = 30 } = {}) {
+  const qs = new URLSearchParams({ days: String(days) }).toString();
   return apiFetch(`/api/admin/battery-swaps/top-batteries?${qs}`);
 }
 
-export async function adminBatterySwapsTopVehicles({ days = 30, limit = 10 } = {}) {
-  const qs = new URLSearchParams({ days: String(days), limit: String(limit) }).toString();
+export async function adminBatterySwapsTopVehicles({ days = 30 } = {}) {
+  const qs = new URLSearchParams({ days: String(days) }).toString();
   return apiFetch(`/api/admin/battery-swaps/top-vehicles?${qs}`);
 }
 
-export async function adminBatterySwapsTopRiders({ days = 30, limit = 10 } = {}) {
-  const qs = new URLSearchParams({ days: String(days), limit: String(limit) }).toString();
+export async function adminBatterySwapsTopRiders({ days = 30 } = {}) {
+  const qs = new URLSearchParams({ days: String(days) }).toString();
   return apiFetch(`/api/admin/battery-swaps/top-riders?${qs}`);
 }
 
-export async function adminBatterySwapsLatestByVehicle({ limit = 20, search = "" } = {}) {
+export async function adminBatterySwapsLatestByVehicle({ search = "" } = {}) {
   const qs = new URLSearchParams();
-  if (limit) qs.set("limit", String(limit));
   if (search) qs.set("search", String(search));
   const query = qs.toString();
   return apiFetch(`/api/admin/battery-swaps/latest-by-vehicle${query ? `?${query}` : ""}`);

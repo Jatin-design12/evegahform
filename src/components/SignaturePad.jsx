@@ -62,8 +62,13 @@ export default function SignaturePad({ value, onChange, height = 180 }) {
     const dataUrl = sigRef.current.toDataURL("image/png");
     onChange?.(dataUrl);
     setSavedNote("Signature saved.");
-    window.clearTimeout(handleSave._t);
-    handleSave._t = window.setTimeout(() => setSavedNote(""), 2000);
+  };
+
+  const handleBegin = () => {
+    if (savedNote) {
+      setSavedNote("");
+    }
+    setSaveError("");
   };
 
   return (
@@ -75,16 +80,19 @@ export default function SignaturePad({ value, onChange, height = 180 }) {
         <SignatureCanvas
           ref={sigRef}
           penColor="black"
-          canvasProps={{
-            width,
-            height,
-            className: "block bg-gray-50",
-          }}
+          canvasProps={
+            {
+              width,
+              height,
+              className: "block bg-gray-50",
+            }
+          }
+          onBegin={handleBegin}
         />
       </div>
 
       {saveError ? <p className="error mt-2">{saveError}</p> : null}
-      {savedNote ? <p className="info mt-2">{savedNote}</p> : null}
+      {savedNote ? <p className="text-sm text-emerald-600 mt-2">{savedNote}</p> : null}
 
       <div className="mt-3 flex items-center gap-3">
         <button type="button" onClick={handleSave} className="btn-outline">

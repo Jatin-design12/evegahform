@@ -5,8 +5,31 @@ import { BATTERY_ID_OPTIONS } from "../../../utils/batteryIds";
 import { VEHICLE_ID_OPTIONS } from "../../../utils/vehicleIds";
 import { apiFetch } from "../../../config/api";
 
+const toDateTimeLocal = (date = new Date()) => {
+  const pad = (value) => String(value).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  const mm = pad(date.getMonth() + 1);
+  const dd = pad(date.getDate());
+  const hh = pad(date.getHours());
+  const mi = pad(date.getMinutes());
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+};
+
+const toDisplayDateTime = (value) => {
+  if (!value) return "--";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "--";
+  const pad = (v) => String(v).padStart(2, "0");
+  const dd = pad(parsed.getDate());
+  const mm = pad(parsed.getMonth() + 1);
+  const yy = pad(parsed.getFullYear() % 100);
+  const hh = pad(parsed.getHours());
+  const mi = pad(parsed.getMinutes());
+  return `${dd}:${mm}:${yy} ${hh}:${mi}`;
+};
+
 export default function Step2Identity() {
-  const { formData, updateForm } = useRiderForm();
+  const { formData, updateForm, setFormData } = useRiderForm();
   const navigate = useNavigate();
   const vehicleDropdownRef = useRef(null);
   const vehicleQueryRef = useRef(null);
@@ -23,7 +46,7 @@ export default function Step2Identity() {
   const [unavailableBatteryIds, setUnavailableBatteryIds] = useState([]);
 
   const PACKAGE_OPTIONS = ["hourly", "daily", "weekly", "monthly"];
-  const PAYMENT_OPTIONS = ["cash", "online"];
+  const PAYMENT_OPTIONS = ["cash", "online", "split"];
   const BIKE_MODEL_OPTIONS = ["MINK", "CITY", "KING"];
   const ACCESSORY_OPTIONS = [
     { key: "mobile_holder", label: "Mobile holder" },
@@ -41,6 +64,43 @@ export default function Step2Identity() {
     }
   };
 
+  const handlePaymentModeChange = (value) => {
+    const total = Number(formData.totalAmount || 0);
+    const next = { paymentMode: value };
+    if (value === "cash") {
+      next.cashAmount = total;
+      next.onlineAmount = 0;
+    } else if (value === "online") {
+      next.cashAmount = 0;
+      next.onlineAmount = total;
+    } else if (value === "split") {
+      const cashShare = Math.round(total / 2);
+      next.cashAmount = cashShare;
+      next.onlineAmount = total - cashShare;
+    }
+    updateForm(next);
+  };
+
+  const clampSplitValue = (value) => {
+    const next = Number(value);
+    if (Number.isNaN(next)) return 0;
+    return Math.max(0, next);
+  };
+
+  const handleSplitCashChange = (value) => {
+    const total = Number(formData.totalAmount || 0);
+    const nextCash = clampSplitValue(value);
+    const nextOnline = Math.max(total - nextCash, 0);
+    updateForm({ cashAmount: nextCash, onlineAmount: nextOnline });
+  };
+
+  const handleSplitOnlineChange = (value) => {
+    const total = Number(formData.totalAmount || 0);
+    const nextOnline = clampSplitValue(value);
+    const nextCash = Math.max(total - nextOnline, 0);
+    updateForm({ cashAmount: nextCash, onlineAmount: nextOnline });
+  };
+
   const isNonEmpty = (v) => Boolean(String(v ?? "").trim());
 
   const normalizeIdForCompare = (value) =>
@@ -56,6 +116,12 @@ export default function Step2Identity() {
     () => new Set((Array.isArray(unavailableBatteryIds) ? unavailableBatteryIds : []).map(normalizeIdForCompare).filter(Boolean)),
     [unavailableBatteryIds]
   );
+
+  useEffect(() => {
+    if (!formData.rentalPackage) return;
+    const now = toDateTimeLocal(new Date());
+    setFormData((prev) => ({ ...prev, rentalStart: now }));
+  }, [formData.rentalPackage]);
 
   useEffect(() => {
     let mounted = true;
@@ -118,6 +184,14 @@ export default function Step2Identity() {
     setBatteryQuery("");
   };
 
+  const totalAmount = Number(formData.totalAmount || 0);
+  const cashAmount = Number(formData.cashAmount || 0);
+  const onlineAmount = Number(formData.onlineAmount || 0);
+  const paymentMismatch = cashAmount + onlineAmount !== totalAmount;
+  const paymentSplitValid =
+    formData.paymentMode !== "split" ||
+    (cashAmount >= 0 && onlineAmount >= 0 && !paymentMismatch);
+
   const isValid =
     isNonEmpty(formData.rentalStart) &&
     isNonEmpty(formData.rentalPackage) &&
@@ -128,7 +202,8 @@ export default function Step2Identity() {
     isNonEmpty(formData.bikeId) &&
     isNonEmpty(formData.batteryId) &&
     !unavailableVehicleSet.has(normalizeIdForCompare(formData.bikeId)) &&
-    !unavailableBatterySet.has(normalizeIdForCompare(formData.batteryId));
+    !unavailableBatterySet.has(normalizeIdForCompare(formData.batteryId)) &&
+    paymentSplitValid;
 
   const handleNext = () => {
     setAttempted(true);
@@ -144,34 +219,6 @@ export default function Step2Identity() {
           <p className="text-sm text-gray-500">
             Fill rental plan, vehicle details, and accessories issued.
           </p>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <label className="label">Rental Start Date &amp; Time</label>
-            <input
-              type="datetime-local"
-              className="input"
-              value={formData.rentalStart || ""}
-              onChange={(e) => updateForm({ rentalStart: e.target.value })}
-            />
-            {attempted && !isNonEmpty(formData.rentalStart) ? (
-              <p className="error">Rental start date &amp; time is required.</p>
-            ) : null}
-          </div>
-
-          <div>
-            <label className="label">Return Date</label>
-            <input
-              type="datetime-local"
-              className="input"
-              value={formData.rentalEnd || ""}
-              onChange={(e) => updateForm({ rentalEnd: e.target.value })}
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              Auto: calculated from package
-            </p>
-          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -193,15 +240,46 @@ export default function Step2Identity() {
           </div>
 
           <div>
+            <label className="label">Rental Start Date &amp; Time</label>
+            <input
+              type="datetime-local"
+              className="input"
+              value={formData.rentalStart || ""}
+              onChange={(e) => updateForm({ rentalStart: e.target.value })}
+            />
+            
+            {attempted && !isNonEmpty(formData.rentalStart) ? (
+              <p className="error">Rental start date &amp; time is required.</p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <label className="label">Return Date</label>
+            <input
+              type="datetime-local"
+              className="input"
+              value={formData.rentalEnd || ""}
+              onChange={(e) => updateForm({ rentalEnd: e.target.value })}
+            />
+            
+          </div>
+
+          <div>
             <label className="label">Payment Mode</label>
             <select
               className="select"
               value={formData.paymentMode || "cash"}
-              onChange={(e) => updateForm({ paymentMode: e.target.value })}
+              onChange={(e) => handlePaymentModeChange(e.target.value)}
             >
               {PAYMENT_OPTIONS.map((p) => (
                 <option key={p} value={p}>
-                  {p === "online" ? "Online" : "Cash"}
+                  {p === "online"
+                    ? "Online"
+                    : p === "split"
+                    ? "Split (cash + online)"
+                    : "Cash"}
                 </option>
               ))}
             </select>
@@ -249,9 +327,42 @@ export default function Step2Identity() {
               value={formData.totalAmount ?? 0}
               readOnly
             />
-            <p className="mt-1 text-xs text-gray-500">Auto: amount + deposit</p>
+            
           </div>
         </div>
+
+        {formData.paymentMode === "split" ? (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <label className="label">Cash Paid</label>
+              <input
+                type="number"
+                min="0"
+                className="input"
+                value={formData.cashAmount ?? 0}
+                onChange={(e) => handleSplitCashChange(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="label">Online Paid</label>
+              <input
+                type="number"
+                min="0"
+                className="input"
+                value={formData.onlineAmount ?? 0}
+                onChange={(e) => handleSplitOnlineChange(e.target.value)}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {formData.paymentMode === "split" && attempted && paymentMismatch ? (
+          <p className="error">
+            Cash + online totals must equal the total amount ({totalAmount}).
+          </p>
+        ) : null}
+
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>

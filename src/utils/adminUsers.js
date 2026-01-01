@@ -24,9 +24,8 @@ async function apiFetch(path, options = {}) {
   return data;
 }
 
-export async function listAuthUsers({ limit = 100, pageToken = null } = {}) {
+export async function listAuthUsers({ pageToken = null } = {}) {
   const query = new URLSearchParams();
-  if (limit) query.set("limit", String(limit));
   if (pageToken) query.set("pageToken", String(pageToken));
   const qs = query.toString();
   return apiFetch(`/api/admin/users${qs ? `?${qs}` : ""}`);

@@ -109,6 +109,8 @@ const defaultFormData = {
   securityDeposit: 300,
   totalAmount: 550,
   paymentMode: "cash",
+  cashAmount: 550,
+  onlineAmount: 0,
   bikeModel: "MINK",
   bikeId: "",
   batteryId: "",
@@ -211,6 +213,31 @@ export function RiderFormProvider({ children, user, initialDraftId = null }) {
   };
 
   useEffect(() => {
+    setFormData((prev) => {
+      const total = Number(prev.totalAmount || 0);
+      const cash = Number(prev.cashAmount || 0);
+      const online = Number(prev.onlineAmount || 0);
+      if (prev.paymentMode === "cash") {
+        if (cash === total && online === 0) return prev;
+        return { ...prev, cashAmount: total, onlineAmount: 0 };
+      }
+      if (prev.paymentMode === "online") {
+        if (online === total && cash === 0) return prev;
+        return { ...prev, cashAmount: 0, onlineAmount: total };
+      }
+      if (prev.paymentMode === "split") {
+        if (cash + online === total) return prev;
+        if (cash === 0 && online === 0) {
+          const nextCash = Math.round(total / 2);
+          return { ...prev, cashAmount: nextCash, onlineAmount: total - nextCash };
+        }
+        return prev;
+      }
+      return prev;
+    });
+  }, [formData.paymentMode, formData.totalAmount]);
+
+  useEffect(() => {
     const load = async () => {
       if (!initialDraftId) {
         setLoadingDraft(false);
@@ -302,6 +329,7 @@ export function RiderFormProvider({ children, user, initialDraftId = null }) {
     <RiderFormContext.Provider
       value={{
         formData,
+        setFormData,
         updateForm,
         errors,
         setErrors,
