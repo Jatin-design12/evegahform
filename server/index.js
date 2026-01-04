@@ -1165,6 +1165,234 @@ app.patch("/api/rentals/:id", async (req, res) => {
   }
 });
 
+app.post("/api/payments/icici/callback", async (req, res) => {
+  const payload = req.body || {};
+  const signatureSecret = String(process.env.ICICI_PAYMENT_SIGNATURE_SECRET || "").trim();
+  const rawBody = req.rawBody || (payload ? JSON.stringify(payload) : "");
+  const signatureHeader =
+    req.headers["x-icici-signature"] ||
+    req.headers["x-signature"] ||
+    req.headers.signature ||
+    "";
+  const normalizedSignature = String(signatureHeader || "").trim().toLowerCase();
+
+  if (signatureSecret) {
+    if (!normalizedSignature) {
+      return res.status(400).json({ error: "missing signature" });
+    }
+    const expected = crypto.createHmac("sha256", signatureSecret).update(rawBody).digest("hex");
+    if (expected.toLowerCase() !== normalizedSignature) {
+      console.warn("ICICI callback signature mismatch", {
+        expected,
+        provided: normalizedSignature,
+      });
+      return res.status(401).json({ error: "invalid signature" });
+    }
+  }
+
+  const findFirst = (...values) => {
+    for (const value of values) {
+      if (value === undefined || value === null) continue;
+      const trimmed = String(value).trim();
+      if (trimmed) return trimmed;
+    }
+    return "";
+  };
+
+  const reference = findFirst(
+    payload.merchantRefNo,
+    payload.merchant_reference_no,
+    payload.merchantReference,
+    payload.referenceId,
+    payload.reference,
+    payload.orderId,
+    payload.order_reference,
+    payload.paymentReference,
+    payload.merchant_reference
+  );
+
+  const transactionId = findFirst(
+    payload.transactionId,
+    payload.txnId,
+    payload.transaction_reference,
+    payload.txnRef,
+    payload.rrn,
+    payload.paymentId,
+    payload.payment_id
+  );
+
+  const statusRaw = findFirst(
+    payload.status,
+    payload.payment_status,
+    payload.txnStatus,
+    payload.transactionStatus,
+    payload.responseCode,
+    payload.result,
+    payload.status_code
+  );
+  const status = statusRaw ? statusRaw.toUpperCase() : null;
+
+  const statusMessage = findFirst(
+    payload.statusMessage,
+    payload.status_msg,
+    payload.responseMessage,
+    payload.response_message,
+    payload.note,
+    payload.response_desc
+  );
+
+  const parseAmount = (value) => {
+    if (value === undefined || value === null) return null;
+    const cleaned = String(value).replace(/[^0-9.\-]+/g, "");
+    if (!cleaned) return null;
+    const parsed = Number(cleaned);
+    if (!Number.isFinite(parsed)) return null;
+    return Number(parsed.toFixed(2));
+  };
+
+  const amount = parseAmount(
+    payload.amount,
+    payload.payment_amount,
+    payload.transaction_amount,
+    payload.txnAmount,
+    payload.amountPaid,
+    payload.value,
+    payload.amt,
+    payload.net_amount,
+    payload.settlement_amount
+  );
+
+  const paymentMethod = findFirst(
+    payload.payment_method,
+    payload.paymentMethod,
+    payload.channel,
+    payload.payment_channel,
+    payload.instrument,
+    payload.paymentInstrument,
+    payload.mode
+  );
+
+  const isUuid = (value) =>
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+  let rentalId = null;
+  let paymentDueId = null;
+
+  if (reference && isUuid(reference)) {
+    try {
+      const { rows: rentalRows } = await pool.query(
+        "select id from public.rentals where id = $1 limit 1",
+        [reference]
+      );
+      if (rentalRows?.[0]) {
+        rentalId = rentalRows[0].id;
+      } else {
+        const { rows: dueRows } = await pool.query(
+          "select id from public.payment_dues where id = $1 limit 1",
+          [reference]
+        );
+        if (dueRows?.[0]) {
+          paymentDueId = dueRows[0].id;
+        }
+      }
+    } catch (error) {
+      console.warn("ICICI callback reference lookup failed", String(error?.message || error));
+    }
+  }
+
+  const successStates = new Set(["SUCCESS", "SUCCESSFUL", "COMPLETED", "PAID", "APPROVED", "OK"]);
+  const failureStates = new Set(["FAILED", "FAIL", "DECLINED", "REJECTED", "ERROR"]);
+  const pendingStates = new Set(["PENDING", "IN_PROGRESS", "PROCESSING", "RECEIVED"]);
+
+  const dueStatus =
+    status && successStates.has(status)
+      ? "paid"
+      : status && failureStates.has(status)
+      ? "failed"
+      : status && pendingStates.has(status)
+      ? "in-progress"
+      : null;
+
+  const noteParts = ["ICICI callback"];
+  if (status) noteParts.push(`status ${status}`);
+  if (transactionId) noteParts.push(`txn ${transactionId}`);
+  if (amount !== null) noteParts.push(`amount ${amount}`);
+  if (statusMessage) noteParts.push(statusMessage);
+  const noteText = noteParts.filter(Boolean).join(" - ");
+
+  const headerSnapshot = {
+    "x-icici-signature": req.headers["x-icici-signature"] || null,
+    "x-signature": req.headers["x-signature"] || null,
+    signature: req.headers.signature || null,
+    "user-agent": req.headers["user-agent"] || null,
+  };
+
+  let notificationId = null;
+  try {
+    const { rows: insertedRows } = await pool.query(
+      `insert into public.payment_notifications (
+         reference, transaction_id, status, status_message,
+         amount, payment_method, signature,
+         headers, payload, raw_body,
+         rental_id, payment_due_id
+       ) values (
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+       ) returning id`,
+      [
+        reference || null,
+        transactionId || null,
+        status,
+        statusMessage || null,
+        amount,
+        paymentMethod || null,
+        normalizedSignature || null,
+        headerSnapshot,
+        payload,
+        rawBody || null,
+        rentalId,
+        paymentDueId,
+      ]
+    );
+    notificationId = insertedRows?.[0]?.id || null;
+  } catch (error) {
+    console.error("Failed to store ICICI callback", String(error?.message || error));
+    return res.status(500).json({ error: "failed to persist callback" });
+  }
+
+  if (paymentDueId && dueStatus) {
+    try {
+      await pool.query(
+        `update public.payment_dues
+         set status = $1,
+             notes = case
+               when coalesce(notes,'') = '' then $2
+               else notes || E'\\n' || $2
+             end
+         where id = $3`,
+        [dueStatus, noteText, paymentDueId]
+      );
+    } catch (error) {
+      console.warn(
+        "Failed to update payment due status for ICICI callback",
+        String(error?.message || error)
+      );
+    }
+  }
+
+  return res.json({
+    ok: true,
+    recorded: Boolean(notificationId),
+    reference,
+    transaction_id: transactionId,
+    status,
+    status_message: statusMessage,
+    amount,
+    rental_id: rentalId,
+    payment_due_id: paymentDueId,
+  });
+});
+
 app.get("/api/returns", async (_req, res) => {
   try {
     const { rows } = await pool.query(
