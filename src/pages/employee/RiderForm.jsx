@@ -49,7 +49,7 @@ const STEPS = [
   },
 ];
 
-function Stepper({ currentIndex }) {
+function Stepper({ currentIndex, onStepClick }) {
   return (
     <div className="w-full">
       <div className="flex items-start gap-0">
@@ -68,36 +68,47 @@ function Stepper({ currentIndex }) {
             ? "bg-evegah-primary"
             : "bg-gray-200";
 
+          const canNavigate = typeof onStepClick === "function";
+
           return (
             <div key={step.path} className="flex-1">
-              <div className="flex items-center">
-                <div
-                  className={
-                    "h-8 w-8 rounded-full border flex items-center justify-center text-sm font-semibold shrink-0 " +
-                    circleClass
-                  }
-                  aria-current={isActive ? "step" : undefined}
-                >
-                  {isComplete ? <Check size={16} /> : index + 1}
+              <button
+                type="button"
+                onClick={() => canNavigate && onStepClick(index)}
+                disabled={!canNavigate}
+                className={`flex w-full flex-col items-start gap-2 text-left bg-transparent p-0 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-evegah-primary ${
+                  canNavigate ? "hover:bg-gray-50" : "cursor-default"
+                }`}
+              >
+                <div className="flex items-center w-full">
+                  <div
+                    className={
+                      "h-8 w-8 rounded-full border flex items-center justify-center text-sm font-semibold shrink-0 " +
+                      circleClass
+                    }
+                    aria-current={isActive ? "step" : undefined}
+                  >
+                    {isComplete ? <Check size={16} /> : index + 1}
+                  </div>
+
+                  {showConnector ? (
+                    <div className="flex-1 px-2">
+                      <div className={"h-[2px] w-full rounded-full " + connectorClass} />
+                    </div>
+                  ) : null}
                 </div>
 
-                {showConnector ? (
-                  <div className="flex-1 px-2">
-                    <div className={"h-[2px] w-full rounded-full " + connectorClass} />
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="mt-2">
-                <p
-                  className={
-                    "text-xs font-semibold " +
-                    (isComplete || isActive ? "text-evegah-text" : "text-gray-400")
-                  }
-                >
-                  {step.title}
-                </p>
-              </div>
+                <div className="mt-2">
+                  <p
+                    className={
+                      "text-xs font-semibold " +
+                      (isComplete || isActive ? "text-evegah-text" : "text-gray-400")
+                    }
+                  >
+                    {step.title}
+                  </p>
+                </div>
+              </button>
             </div>
           );
         })}
@@ -126,6 +137,9 @@ function RiderStepProgress() {
 
   const basePath = location.pathname.replace(/\/(step-\d+)\b.*$/, "");
   const currentStepPath = STEPS[currentIndex]?.path || "step-1";
+  const normalizedBasePath = basePath.replace(/\/+$/, "");
+  const buildStepPath = (step) =>
+    normalizedBasePath ? `${normalizedBasePath}/${step}` : `/${step}`;
 
   const showActionNote = (type, message) => {
     setActionNote({ type, message });
@@ -133,9 +147,16 @@ function RiderStepProgress() {
     showActionNote._t = window.setTimeout(() => setActionNote(null), 3000);
   };
 
+  const handleStepClick = (index) => {
+    const step = STEPS[index];
+    if (!step) return;
+    const targetPath = buildStepPath(step.path);
+    navigate(targetPath);
+  };
+
   const handleClearForm = () => {
     resetForm();
-    navigate(`${basePath}/step-1`, { replace: true });
+    navigate(buildStepPath("step-1"), { replace: true });
     showActionNote("info", "Form cleared.");
   };
 
@@ -184,7 +205,7 @@ function RiderStepProgress() {
         </div>
       </div>
 
-      <Stepper currentIndex={currentIndex} />
+      <Stepper currentIndex={currentIndex} onStepClick={handleStepClick} />
 
       {actionNote ? (
         <p
