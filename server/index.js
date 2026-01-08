@@ -9,7 +9,6 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import admin from "firebase-admin";
 import multer from "multer";
-import twilio from "twilio";
 import PDFDocument from "pdfkit";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -31,6 +30,12 @@ app.use(express.json({ limit: "15mb" }));
 
 const port = Number(process.env.PORT || 5050);
 const databaseUrl = process.env.DATABASE_URL;
+
+const whatsappPhoneNumberId = String(
+  process.env.WHATSAPP_PHONE_NUMBER_ID || "982622404928198"
+).trim();
+const whatsappAccessToken = String(process.env.WHATSAPP_CLOUD_ACCESS_TOKEN || "").trim();
+const fetchApi = typeof globalThis.fetch === "function" ? globalThis.fetch.bind(globalThis) : null;
 
 const ADMIN_EMAIL = String(process.env.ADMIN_EMAIL || "adminev@gmail.com").trim().toLowerCase();
 
@@ -211,6 +216,7 @@ function normalizeZone(value) {
   if (cleaned.includes("manjalpur")) return "Manjalpur";
   if (cleaned.includes("karelibaug")) return "Karelibaug";
   if (cleaned.includes("daman")) return "Daman";
+  if (cleaned.includes("aatapi") || cleaned.includes("atapi")) return "Aatapi";
   return "";
 }
 
@@ -644,9 +650,13 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
     if (!formData) return res.status(400).json({ error: "Missing formData" });
 
     const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || "").trim();
-    const accountSid = String(process.env.TWILIO_ACCOUNT_SID || "").trim();
-    const authToken = String(process.env.TWILIO_AUTH_TOKEN || "").trim();
-    const fromWhatsApp = String(process.env.TWILIO_WHATSAPP_FROM || "").trim();
+    if (!publicBaseUrl) {
+      return res.status(200).json({
+        sent: false,
+        mediaUrl: null,
+        reason: "PUBLIC_BASE_URL is required to attach media on WhatsApp",
+      });
+    }
 
     const rawReceiptId = `${registration?.rentalId || registration?.riderId || Date.now()}`;
     const receiptId = (() => {
@@ -661,38 +671,54 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
     const pdfBuffer = await createReceiptPdfBuffer({ formData, registration });
     await fs.promises.writeFile(absPath, pdfBuffer);
 
-    const mediaUrl = publicBaseUrl
-      ? `${publicBaseUrl.replace(/\/$/, "")}/uploads/${encodeURIComponent(fileName)}`
-      : null;
-
-    if (!accountSid || !authToken || !fromWhatsApp) {
-      // Fallback: return a URL (if possible) so staff can send via WhatsApp manually.
+    const mediaUrl = `${publicBaseUrl.replace(/\/$/, "")}/uploads/${encodeURIComponent(fileName)}`;
+    if (!whatsappPhoneNumberId || !whatsappAccessToken) {
       return res.status(200).json({
         sent: false,
         mediaUrl,
-        reason: "Twilio WhatsApp not configured",
+        reason: "WhatsApp Cloud API not configured",
       });
     }
-    if (!mediaUrl) {
-      return res.status(200).json({
+    if (!fetchApi) {
+      return res.status(503).json({
         sent: false,
-        mediaUrl: null,
-        reason: "PUBLIC_BASE_URL is required to attach media on WhatsApp",
+        mediaUrl,
+        reason: "Node fetch API unavailable",
       });
     }
 
-    const client = twilio(accountSid, authToken);
     const riderName = formData?.fullName || "Rider";
     const messageBody = `Hello ${riderName},\nYour EVegah receipt is attached (PDF).`;
+    const apiUrl = `https://graph.facebook.com/v17.0/${encodeURIComponent(whatsappPhoneNumberId)}/messages`;
+    const payload = {
+      messaging_product: "whatsapp",
+      to: `91${toDigitsValue}`,
+      type: "document",
+      document: {
+        link: mediaUrl,
+        filename: fileName,
+        caption: messageBody,
+      },
+    };
 
-    const message = await client.messages.create({
-      from: fromWhatsApp,
-      to: `whatsapp:+91${toDigitsValue}`,
-      body: messageBody,
-      mediaUrl: [mediaUrl],
+    const response = await fetchApi(apiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${whatsappAccessToken}`,
+      },
+      body: JSON.stringify(payload),
     });
+    const responseBody = await response.json().catch(() => null);
+    if (!response.ok) {
+      console.error("WhatsApp Cloud API error", response.status, responseBody);
+      return res.status(500).json({
+        error: "Failed to send WhatsApp receipt",
+        detail: responseBody,
+      });
+    }
 
-    return res.status(200).json({ sent: true, sid: message.sid, mediaUrl });
+    return res.status(200).json({ sent: true, result: responseBody, mediaUrl });
   } catch (e) {
     console.error("WhatsApp send failed", e);
     return res.status(500).json({ error: "Failed to send WhatsApp receipt" });
@@ -1897,7 +1923,7 @@ app.get("/api/analytics/zone-distribution", async (_req, res) => {
 });
 
 app.get("/api/analytics/active-zone-counts", async (_req, res) => {
-  const ZONES = ["Gotri", "Manjalpur", "Karelibaug", "Daman"];
+  const ZONES = ["Gotri", "Manjalpur", "Karelibaug", "Daman", "Aatapi"];
   const next = Object.fromEntries(ZONES.map((z) => [z, 0]));
 
   try {

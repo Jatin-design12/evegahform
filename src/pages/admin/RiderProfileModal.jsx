@@ -37,6 +37,7 @@ export default function RiderProfileModal({ rider, close }) {
     if (cleaned.includes("manjalpur")) return "Manjalpur";
     if (cleaned.includes("karelibaug")) return "Karelibaug";
     if (cleaned.includes("daman")) return "Daman";
+    if (cleaned.includes("aatapi") || cleaned.includes("atapi")) return "Aatapi";
     return "";
   };
 

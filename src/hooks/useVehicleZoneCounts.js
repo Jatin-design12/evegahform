@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../config/api";
 
-const ZONES = ["Gotri", "Manjalpur", "Karelibaug", "Daman"];
+const ZONES = ["Gotri", "Manjalpur", "Karelibaug", "Daman", "Aatapi"];
 
 export default function useVehicleZoneCounts() {
   const [counts, setCounts] = useState(() =>

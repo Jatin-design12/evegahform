@@ -51,6 +51,19 @@ export default function AdminDashboard() {
 		return rem ? `${hours}h ${rem}m` : `${hours}h`;
 	};
 
+	const formatDateTime = (value) => {
+		if (!value) return "-";
+		const d = new Date(value);
+		if (Number.isNaN(d.getTime())) return "-";
+		return d.toLocaleString("en-IN", {
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+			hour: "2-digit",
+			minute: "2-digit",
+		});
+	};
+
 	useEffect(() => {
 		let mounted = true;
 
@@ -105,6 +118,7 @@ export default function AdminDashboard() {
 						user: r?.full_name || "-",
 						vehicle: r?.vehicle_number || "-",
 						duration: formatDuration(r?.start_time),
+						startLabel: formatDateTime(r?.start_time),
 					}))
 				);
 			} catch (e) {
@@ -229,6 +243,9 @@ export default function AdminDashboard() {
 										<div className="text-xs text-evegah-muted">
 											{r.vehicle} • {r.id}
 										</div>
+										{r.startLabel && r.startLabel !== "-" ? (
+											<div className="text-[11px] text-gray-400">Started {r.startLabel}</div>
+										) : null}
 									</div>
 									<div className="text-sm font-semibold text-blue-700">{r.duration}</div>
 								</div>

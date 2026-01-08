@@ -190,6 +190,12 @@ function ZoneRadialCard({ counts, loading }) {
       color: "text-evegah-accent",
       dot: "bg-evegah-accent",
     },
+    {
+      key: "Aatapi",
+      label: "Aatapi",
+      color: "text-brand-light",
+      dot: "bg-brand-light",
+    },
   ];
 
   const safeCounts = counts || {};
@@ -367,12 +373,16 @@ export default function Dashboard() {
         const rows = await apiFetch("/api/dashboard/active-rentals?limit=5");
         if (!mounted) return;
         setActiveRentals(
-          (Array.isArray(rows) ? rows : []).map((r) => ({
-            id: r?.id,
-            user: r?.full_name || "-",
-            vehicle: r?.vehicle_number || "-",
-            duration: formatDuration(r?.start_time),
-          }))
+          (Array.isArray(rows) ? rows : []).map((r) => {
+            const startLabel = formatDateTime(r?.start_time);
+            return {
+              id: r?.id,
+              user: r?.full_name || "-",
+              vehicle: r?.vehicle_number || "-",
+              duration: formatDuration(r?.start_time),
+              startLabel,
+            };
+          })
         );
       } catch {
         if (!mounted) return;
@@ -612,6 +622,9 @@ export default function Dashboard() {
                     {r.vehicle}
                     {r.id ? ` • ${r.id}` : ""}
                   </p>
+                  {r.startLabel && r.startLabel !== "-" ? (
+                    <p className="text-[11px] text-gray-400">Started {r.startLabel}</p>
+                  ) : null}
                 </div>
                 <p className="text-sm font-semibold text-blue-700">{r.duration}</p>
               </div>

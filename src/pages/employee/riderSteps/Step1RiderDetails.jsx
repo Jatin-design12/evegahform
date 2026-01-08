@@ -334,6 +334,8 @@ export default function Step1RiderDetails() {
               <option>Gotri Zone</option>
               <option>Manjalpur</option>
               <option>Karelibaug</option>
+                <option>Daman</option>
+                <option>Aatapi</option>
             </select>
           </div>
         </div>
