@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import AdminSidebar from "../../components/admin/AdminSidebar";
 import { apiFetch } from "../../config/api";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { formatRentalId, formatReturnId } from "../../utils/entityId";
 
 export default function ReturnsTable() {
   const [data, setData] = useState([]);
@@ -56,23 +57,20 @@ export default function ReturnsTable() {
     return `₹${safe.toLocaleString("en-IN")}`;
   };
 
-  const shortId = (value) => {
-    const s = String(value || "").trim();
-    if (!s) return "-";
-    if (s.length <= 14) return s;
-    return `${s.slice(0, 8)}…${s.slice(-4)}`;
-  };
-
   const rows = useMemo(() => {
     return (data || []).map((r) => {
       const depositReturned = Boolean(r?.deposit_returned);
       const depositReturnedAmount = Number(r?.deposit_returned_amount || 0);
+      const rentalIdDisplay = formatRentalId(r?.rental_id);
+      const returnIdDisplay = formatReturnId(r?.return_id);
       return {
         ...r,
         rider_full_name_display: r?.rider_full_name || "-",
         rider_mobile_display: r?.rider_mobile || "-",
         deposit_returned_display: depositReturned ? "Returned" : "-",
         deposit_returned_amount_value: depositReturned ? depositReturnedAmount : 0,
+        rental_id_display: rentalIdDisplay,
+        return_id_display: returnIdDisplay,
       };
     });
   }, [data]);
@@ -92,6 +90,8 @@ export default function ReturnsTable() {
         r?.condition_notes,
         r?.rental_id,
         r?.return_id,
+        r?.rental_id_display,
+        r?.return_id_display,
       ]
         .map((v) => String(v || "").toLowerCase())
         .join(" | ");
@@ -197,10 +197,10 @@ export default function ReturnsTable() {
                       <span className="line-clamp-2">{r.condition_notes || "-"}</span>
                     </td>
                     <td className="px-4 py-2">
-                      <span className="text-xs text-gray-600">{shortId(r.rental_id)}</span>
+                      <span className="text-xs text-gray-600">{r.rental_id_display}</span>
                     </td>
                     <td className="px-4 py-2">
-                      <span className="text-xs text-gray-600">{shortId(r.return_id)}</span>
+                      <span className="text-xs text-gray-600">{r.return_id_display}</span>
                     </td>
                   </tr>
                 );

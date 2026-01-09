@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import AdminSidebar from "../../components/admin/AdminSidebar";
 import { apiFetch } from "../../config/api";
 import { Search } from "lucide-react";
+import { formatRentalId } from "../../utils/entityId";
 
 export default function RentalsTable() {
   const [data, setData] = useState([]);
@@ -46,15 +47,6 @@ export default function RentalsTable() {
     return `₹${safe.toLocaleString("en-IN")}`;
   };
 
-  const shortId = (value) => {
-    const s = String(value || "").trim();
-    if (!s) return "-";
-    const base = s.split("-")[0] || s;
-    if (base && base.length >= 6) return `EVEGAH-${base.toUpperCase()}`;
-    if (s.length <= 14) return s;
-    return `${s.slice(0, 8)}…${s.slice(-4)}`;
-  };
-
   const parseMaybeJson = (value) => {
     if (!value) return null;
     if (typeof value === "object") return value;
@@ -80,6 +72,7 @@ export default function RentalsTable() {
 
       return {
         ...r,
+        rental_id_display: formatRentalId(r?.id),
         expected_end_time_value: expected,
         returned_at_value: returnedAt,
         status_display: status,
@@ -109,6 +102,7 @@ export default function RentalsTable() {
         r?.rental_package,
         r?.payment_mode_display,
         r?.id,
+        r?.rental_id_display,
       ]
         .map((v) => String(v || "").toLowerCase())
         .join(" | ");
@@ -229,7 +223,7 @@ export default function RentalsTable() {
                     <td className="px-4 py-2 text-right font-semibold">{formatINR(r.total_value)}</td>
                     <td className="px-4 py-2">{r.payment_mode_display}</td>
                     <td className="px-4 py-2">
-                      <span className="text-xs text-gray-600">{shortId(r.id)}</span>
+                      <span className="text-xs text-gray-600">{r.rental_id_display}</span>
                     </td>
                   </tr>
                 );

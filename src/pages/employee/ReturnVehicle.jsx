@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import EmployeeLayout from "../../components/layouts/EmployeeLayout";
 import { apiFetch } from "../../config/api";
+import { formatRentalId } from "../../utils/entityId";
 
 const sanitizeNumericInput = (value, maxLength) =>
   String(value || "")
@@ -35,13 +36,6 @@ export default function ReturnVehicle() {
   const mobileDigits = useMemo(() => sanitizeNumericInput(mobile, 10), [mobile]);
   const vehicleText = String(vehicleId || "").trim();
   const riderNameText = String(riderName || "").trim();
-
-  const shortId = (value) => {
-    const s = String(value || "").trim();
-    if (!s) return "-";
-    if (s.length <= 14) return s;
-    return `${s.slice(0, 8)}…${s.slice(-4)}`;
-  };
 
   const formatCurrency = (amount) => `₹${Number(amount || 0).toLocaleString("en-IN")}`;
 
@@ -228,7 +222,9 @@ export default function ReturnVehicle() {
                 <div>
                   <p className="text-xs text-gray-500">Rider</p>
                   <p className="text-sm text-evegah-text font-medium">{rental.rider_full_name || "-"}</p>
-                  <p className="mt-0.5 text-xs text-gray-500">Rental: {shortId(rental.id)}</p>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    Rental: {formatRentalId(rental.id)}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Vehicle ID</p>
