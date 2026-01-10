@@ -58,5 +58,7 @@ export async function apiFetch(path, options = {}) {
 }
 
 export function apiUrl(path) {
-  return `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
+  const p = String(path || "");
+  if (/^(https?:)?\/\//i.test(p) || /^data:/i.test(p) || /^blob:/i.test(p)) return p;
+  return `${API_BASE}${p.startsWith("/") ? "" : "/"}${p}`;
 }
