@@ -47,7 +47,53 @@ const BRAND = {
   mutedText: [90, 90, 90],
 };
 
+async function downscaleDataUrl(dataUrl, {
+  maxWidth = 1000,
+  maxHeight = 400,
+  mimeType = "image/jpeg",
+  quality = 0.75,
+} = {}) {
+  if (!dataUrl || typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) {
+    return null;
+  }
+
+  return await new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
+        const width = Math.max(1, Math.round(img.width * scale));
+        const height = Math.max(1, Math.round(img.height * scale));
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(dataUrl);
+          return;
+        }
+
+        // White background for JPEG
+        if (mimeType === "image/jpeg") {
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, width, height);
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        const out = canvas.toDataURL(mimeType, quality);
+        resolve(out || dataUrl);
+      } catch {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
 let cachedLogoDataUrl = null;
+let cachedLogoJpegDataUrl = null;
 
 async function urlToDataUrl(url) {
   const resp = await fetch(url);
@@ -71,6 +117,15 @@ async function getLogoDataUrl() {
   }
 }
 
+async function getLogoJpegDataUrl() {
+  if (cachedLogoJpegDataUrl) return cachedLogoJpegDataUrl;
+  const png = await getLogoDataUrl();
+  if (!png) return null;
+  cachedLogoJpegDataUrl =
+    (await downscaleDataUrl(png, { maxWidth: 600, maxHeight: 600, mimeType: "image/jpeg", quality: 0.75 })) || png;
+  return cachedLogoJpegDataUrl;
+}
+
 function drawHeader(doc, { receiptNo, generatedAt, logoDataUrl }) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 14;
@@ -80,7 +135,7 @@ function drawHeader(doc, { receiptNo, generatedAt, logoDataUrl }) {
   // Logo
   if (logoDataUrl && logoDataUrl.startsWith("data:image/")) {
     try {
-      doc.addImage(logoDataUrl, "PNG", margin, headerTop, 26, 26);
+      doc.addImage(logoDataUrl, "JPEG", margin, headerTop, 26, 26);
     } catch {
       // ignore
     }
@@ -177,14 +232,14 @@ function ensureSpace(doc, requiredHeightMm) {
 }
 
 export async function downloadRiderReceiptPdf({ formData, registration } = {}) {
-  const doc = new jsPDF("p", "mm", "a4");
+  const doc = new jsPDF({ orientation: "p", unit: "mm", format: "a4", compress: true });
 
   const receiptGeneratedAt = new Date();
   const receiptNo = registration?.rentalId || registration?.riderId
     ? formatPublicId(registration?.rentalId || registration?.riderId)
     : `LOCAL-${receiptGeneratedAt.getTime()}`;
 
-  const logoDataUrl = await getLogoDataUrl();
+  const logoDataUrl = await getLogoJpegDataUrl();
   drawHeader(doc, {
     receiptNo,
     generatedAt: receiptGeneratedAt.toLocaleString("en-IN"),
@@ -261,10 +316,18 @@ export async function downloadRiderReceiptPdf({ formData, registration } = {}) {
     doc.text("Rider Signature", 17, y + 5.6);
 
     try {
+      const signatureOptimized =
+        (await downscaleDataUrl(signatureDataUrl, {
+          maxWidth: 900,
+          maxHeight: 300,
+          mimeType: "image/jpeg",
+          quality: 0.75,
+        })) || signatureDataUrl;
+
       // Place signature box
       doc.setDrawColor(...BRAND.border);
       doc.rect(14, y + 10, 80, 30);
-      doc.addImage(signatureDataUrl, "PNG", 16, y + 12, 76, 26);
+      doc.addImage(signatureOptimized, "JPEG", 16, y + 12, 76, 26);
     } catch {
       // Ignore image failures; the rest of the PDF is still valuable.
     }

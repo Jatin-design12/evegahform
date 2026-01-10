@@ -45,6 +45,41 @@ export default function Step5Payment() {
           size_bytes: Number(value.size_bytes ?? 0),
         };
       }
+        const buildReceiptPayload = (snapshot) => ({
+          fullName: snapshot?.fullName || snapshot?.name || "",
+          name: snapshot?.name || snapshot?.fullName || "",
+          phone: snapshot?.phone || "",
+          mobile: snapshot?.mobile || snapshot?.phone || "",
+
+          // Rider / agreement (optional)
+          operationalZone: snapshot?.operationalZone || snapshot?.zone || "",
+          agreementAccepted: Boolean(snapshot?.agreementAccepted),
+          agreementDate: snapshot?.agreementDate || null,
+          issuedByName: snapshot?.issuedByName || null,
+
+          // Rental
+          rentalStart: snapshot?.rentalStart || null,
+          rentalEnd: snapshot?.rentalEnd || null,
+          rentalPackage: snapshot?.rentalPackage || null,
+          bikeModel: snapshot?.bikeModel || null,
+          bikeId: snapshot?.bikeId || null,
+          batteryId: snapshot?.batteryId || null,
+          vehicleNumber: snapshot?.vehicleNumber || snapshot?.bikeId || null,
+          accessories: Array.isArray(snapshot?.accessories) ? snapshot.accessories : [],
+          otherAccessories: snapshot?.otherAccessories || null,
+
+          // Payment
+          paymentMode: snapshot?.paymentMode || null,
+          rentalAmount: snapshot?.rentalAmount ?? null,
+          securityDeposit: snapshot?.securityDeposit ?? null,
+          totalAmount: snapshot?.totalAmount ?? null,
+          amountPaid: snapshot?.amountPaid ?? snapshot?.paidAmount ?? snapshot?.totalAmount ?? null,
+
+          // Signature only (small). Photos intentionally excluded.
+          riderSignature:
+            typeof snapshot?.riderSignature === "string" ? snapshot.riderSignature : null,
+        });
+
       if (value.dataUrl) {
         const next = { dataUrl: value.dataUrl };
         if (value.name) next.name = value.name;
@@ -181,7 +216,8 @@ export default function Step5Payment() {
   const handleDownloadReceipt = async () => {
     setWhatsAppStatus("");
     try {
-      await downloadRiderReceiptPdf({ formData: formSnapshot || formData, registration });
+      const snapshot = formSnapshot || formData;
+      await downloadRiderReceiptPdf({ formData: buildReceiptPayload(snapshot), registration });
     } catch (e) {
       setWhatsAppStatus(
         e?.message ? `Unable to generate receipt: ${e.message}` : "Unable to generate receipt."
@@ -191,7 +227,8 @@ export default function Step5Payment() {
 
   const handleSendWhatsApp = async () => {
     setWhatsAppStatus("");
-    const phoneDigits = String((formSnapshot || formData)?.phone || "")
+    const snapshot = formSnapshot || formData;
+    const phoneDigits = String(snapshot?.phone || "")
       .replace(/\D/g, "")
       .slice(0, 10);
     if (phoneDigits.length !== 10) {
@@ -199,13 +236,17 @@ export default function Step5Payment() {
       return;
     }
 
+    // IMPORTANT: don't send large base64 images (photos) to the API.
+    // It can easily exceed proxy limits and isn't required for the receipt PDF.
+    const receiptPayload = buildReceiptPayload(snapshot);
+
     setSendingWhatsApp(true);
     try {
       const res = await apiFetch("/api/whatsapp/send-receipt", {
         method: "POST",
         body: {
           to: phoneDigits,
-          formData: formSnapshot || formData,
+          formData: receiptPayload,
           registration,
         },
       });

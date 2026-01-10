@@ -690,7 +690,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
 
     const riderName = formData?.fullName || "Rider";
     const messageBody = `Hello ${riderName},\nYour EVegah receipt is attached (PDF).`;
-    const apiUrl = `https://graph.facebook.com/v17.0/${encodeURIComponent(whatsappPhoneNumberId)}/messages`;
+    const apiUrl = `https://graph.facebook.com/18.0/${encodeURIComponent(whatsappPhoneNumberId)}/messages`;
     const payload = {
       messaging_product: "whatsapp",
       to: `91${toDigitsValue}`,
