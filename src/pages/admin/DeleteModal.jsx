@@ -7,7 +7,7 @@ export default function DeleteModal({ rider, bulkIds = [], close, reload, onBulk
     if (isBulk) {
       await apiFetch("/api/riders/bulk-delete", {
         method: "POST",
-        body: JSON.stringify({ ids: bulkIds }),
+        body: { ids: bulkIds },
       });
     } else if (rider && rider.id) {
       await apiFetch(`/api/riders/${encodeURIComponent(rider.id)}`, {
