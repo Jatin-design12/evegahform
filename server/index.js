@@ -659,6 +659,13 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
       });
     }
 
+    // In most deployments (PM2 + Nginx), the Node API is proxied under /api.
+    // Default to /api/uploads so the receipt is reachable externally without
+    // requiring a separate Nginx rule for /uploads.
+    // Override via PUBLIC_UPLOADS_PREFIX (e.g. "/uploads" or "/api/uploads").
+    const uploadsPrefix = String(process.env.PUBLIC_UPLOADS_PREFIX || "/api/uploads").trim() || "/api/uploads";
+    const publicUploadsPrefix = `${publicBaseUrl.replace(/\/+$/, "")}${uploadsPrefix.startsWith("/") ? "" : "/"}${uploadsPrefix.replace(/^\/+/, "")}`;
+
     const rawReceiptId = `${registration?.rentalId || registration?.riderId || Date.now()}`;
     const receiptId = (() => {
       const s = String(rawReceiptId || "").trim();
@@ -672,7 +679,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
     const pdfBuffer = await createReceiptPdfBuffer({ formData, registration });
     await fs.promises.writeFile(absPath, pdfBuffer);
 
-    const mediaUrl = `${publicBaseUrl.replace(/\/$/, "")}/uploads/${encodeURIComponent(fileName)}`;
+    const mediaUrl = `${publicUploadsPrefix}/${encodeURIComponent(fileName)}`;
     if (!whatsappPhoneNumberId || !whatsappAccessToken) {
       return res.status(200).json({
         sent: false,
@@ -690,17 +697,127 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
 
     const riderName = formData?.fullName || "Rider";
     const messageBody = `Hello ${riderName},\nYour EVegah receipt is attached (PDF).`;
-    const apiUrl = `https://graph.facebook.com/18.0/${encodeURIComponent(whatsappPhoneNumberId)}/messages`;
-    const payload = {
+    const graphVersion = String(process.env.WHATSAPP_GRAPH_VERSION || "21.0").trim();
+    const apiUrl = `https://graph.facebook.com/${encodeURIComponent(graphVersion)}/${encodeURIComponent(whatsappPhoneNumberId)}/messages`;
+
+    const templateName = String(process.env.WHATSAPP_TEMPLATE_NAME || "").trim();
+    const templateLanguage = String(process.env.WHATSAPP_TEMPLATE_LANGUAGE || "en_US").trim();
+    const templateBodyParams = String(process.env.WHATSAPP_TEMPLATE_BODY_PARAMS || "").trim();
+    const templateHeaderType = String(process.env.WHATSAPP_TEMPLATE_HEADER_TYPE || "").trim().toLowerCase();
+
+    const basePayload = {
       messaging_product: "whatsapp",
       to: `91${toDigitsValue}`,
-      type: "document",
-      document: {
-        link: mediaUrl,
-        filename: fileName,
-        caption: messageBody,
-      },
     };
+
+    // WhatsApp Cloud API: business-initiated messages generally require a template.
+    // If WHATSAPP_TEMPLATE_NAME is provided, we send a template.
+    // Header is optional and must match your approved template (common cause of failures).
+    // Otherwise we try a session document message.
+    const payload = templateName
+      ? {
+          ...basePayload,
+          type: "template",
+          template: {
+            name: templateName,
+            language: { code: templateLanguage || "en_US" },
+            components: (() => {
+              const components = [];
+
+              // Optional template header (must match exactly what Meta template expects)
+              // Supported: "document" (uses the receipt URL) or "text".
+              if (templateHeaderType === "document") {
+                components.push({
+                  type: "header",
+                  parameters: [
+                    {
+                      type: "document",
+                      document: {
+                        link: mediaUrl,
+                        filename: fileName,
+                      },
+                    },
+                  ],
+                });
+              } else if (templateHeaderType === "text") {
+                components.push({
+                  type: "header",
+                  parameters: [
+                    {
+                      type: "text",
+                      text: String(process.env.WHATSAPP_TEMPLATE_HEADER_TEXT || ""),
+                    },
+                  ],
+                });
+              }
+
+              // Optional body parameters (map keys to values)
+              const bodyKeys = templateBodyParams
+                ? templateBodyParams.split(",").map((s) => s.trim()).filter(Boolean)
+                : [];
+
+              // Try to derive amount if present
+              const amount =
+                formData?.amountPaid ??
+                formData?.paidAmount ??
+                formData?.paymentDetails?.totalAmount ??
+                formData?.totalAmount ??
+                formData?.amount ??
+                "";
+
+              const paymentMode =
+                formData?.paymentMode ??
+                formData?.payment_method ??
+                formData?.paymentMethod ??
+                "";
+
+              const hub = formData?.operationalZone ?? formData?.zone ?? "";
+              const vehicleType =
+                formData?.bikeModel ??
+                formData?.vehicleType ??
+                formData?.vehicle_type ??
+                "";
+
+              if (bodyKeys.length) {
+                const values = {
+                  riderName,
+                  receiptId,
+                  registrationId: receiptId,
+                  mediaUrl,
+                  messageBody,
+                  amount: String(amount ?? ""),
+                  paymentMode: String(paymentMode ?? ""),
+                  hub: String(hub ?? ""),
+                  vehicleType: String(vehicleType ?? ""),
+                  phone: `91${toDigitsValue}`,
+                };
+                components.push({
+                  type: "body",
+                  parameters: bodyKeys.map((key) => ({
+                    type: "text",
+                    text: String(values[key] ?? ""),
+                  })),
+                });
+              }
+
+              return components.length ? components : undefined;
+            })(),
+          },
+        }
+      : {
+          ...basePayload,
+          type: "document",
+          document: {
+            link: mediaUrl,
+            filename: fileName,
+            caption: messageBody,
+          },
+        };
+
+    // If we ended up with template.components === undefined, remove it entirely (Meta is picky).
+    if (payload?.type === "template" && payload?.template && payload.template.components === undefined) {
+      delete payload.template.components;
+    }
 
     const response = await fetchApi(apiUrl, {
       method: "POST",
@@ -712,10 +829,23 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
     });
     const responseBody = await response.json().catch(() => null);
     if (!response.ok) {
-      console.error("WhatsApp Cloud API error", response.status, responseBody);
-      return res.status(500).json({
-        error: "Failed to send WhatsApp receipt",
-        detail: responseBody,
+      const metaError = responseBody?.error;
+      const metaMessage =
+        (metaError && typeof metaError.message === "string" && metaError.message.trim())
+          ? metaError.message.trim()
+          : "WhatsApp Cloud API rejected the request";
+
+      console.error("WhatsApp Cloud API error", {
+        status: response.status,
+        meta: metaError || responseBody,
+        to: `91${toDigitsValue}`,
+        mediaUrl,
+      });
+
+      return res.status(502).json({
+        error: `Failed to send WhatsApp receipt: ${metaMessage}`,
+        detail: metaError || responseBody,
+        mediaUrl,
       });
     }
 
