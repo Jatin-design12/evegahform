@@ -697,8 +697,12 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
 
     const riderName = formData?.fullName || "Rider";
     const messageBody = `Hello ${riderName},\nYour EVegah receipt is attached (PDF).`;
-    const graphVersion = String(process.env.WHATSAPP_GRAPH_VERSION || "21.0").trim();
-    const apiUrl = `https://graph.facebook.com/${encodeURIComponent(graphVersion)}/${encodeURIComponent(whatsappPhoneNumberId)}/messages`;
+    const graphVersionRaw = String(process.env.WHATSAPP_GRAPH_VERSION || "21.0").trim();
+    // Meta Graph API expects versions like "v18.0" (leading 'v').
+    const graphVersion = graphVersionRaw.toLowerCase().startsWith("v")
+      ? graphVersionRaw
+      : `v${graphVersionRaw}`;
+    const apiUrl = `https://graph.facebook.com/${graphVersion}/${encodeURIComponent(whatsappPhoneNumberId)}/messages`;
 
     const templateName = String(process.env.WHATSAPP_TEMPLATE_NAME || "").trim();
     const templateLanguage = String(process.env.WHATSAPP_TEMPLATE_LANGUAGE || "en_US").trim();
