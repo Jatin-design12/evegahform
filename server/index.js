@@ -842,6 +842,10 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
       console.error("WhatsApp Cloud API error", {
         status: response.status,
         meta: metaError || responseBody,
+        apiUrl,
+        graphVersion,
+        whatsappPhoneNumberId,
+        templateName: templateName || null,
         to: `91${toDigitsValue}`,
         mediaUrl,
       });
@@ -849,6 +853,14 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
       return res.status(502).json({
         error: `Failed to send WhatsApp receipt: ${metaMessage}`,
         detail: metaError || responseBody,
+        debug: {
+          apiUrl,
+          graphVersion,
+          whatsappPhoneNumberId,
+          templateName: templateName || null,
+          to: `91${toDigitsValue}`,
+          mediaUrl,
+        },
         mediaUrl,
       });
     }
