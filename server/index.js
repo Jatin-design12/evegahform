@@ -7,6 +7,7 @@ import { Pool } from "pg";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import crypto from "crypto";
 import admin from "firebase-admin";
 import multer from "multer";
 import PDFDocument from "pdfkit";
@@ -595,6 +596,190 @@ async function requireAdmin(req, res, next) {
   }
 }
 
+async function requireUser(req, res, next) {
+  if (!firebaseReady) {
+    return res.status(500).json({
+      error:
+        "Firebase Admin not configured. Set FIREBASE_SERVICE_ACCOUNT_PATH (preferred) or FIREBASE_SERVICE_ACCOUNT_JSON in server/.env",
+    });
+  }
+
+  const authHeader = String(req.headers.authorization || "");
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) return res.status(401).json({ error: "Authorization token required" });
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(match[1]);
+    req.user = decoded;
+    next();
+  } catch {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+}
+
+function envStr(name, fallback = "") {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null) return fallback;
+  return String(raw).trim();
+}
+
+function buildUrl(base, params) {
+  const url = new URL(base);
+  for (const [k, v] of Object.entries(params || {})) {
+    if (v === undefined || v === null) continue;
+    const s = String(v);
+    if (!s) continue;
+    url.searchParams.set(k, s);
+  }
+  return url.toString();
+}
+
+function parseScopeList(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  return s
+    .split(/[\s,]+/g)
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+const DIGILOCKER = {
+  clientId: envStr("DIGILOCKER_CLIENT_ID"),
+  clientSecret: envStr("DIGILOCKER_CLIENT_SECRET"),
+  authorizeUrl: envStr("DIGILOCKER_AUTHORIZE_URL"),
+  tokenUrl: envStr("DIGILOCKER_TOKEN_URL"),
+  redirectUri: envStr("DIGILOCKER_REDIRECT_URI"),
+  scopes: parseScopeList(envStr("DIGILOCKER_SCOPES")),
+  tokenAuthMethod: envStr("DIGILOCKER_TOKEN_AUTH_METHOD", "body").toLowerCase(),
+  usePkce: ["true", "1", "yes"].includes(envStr("DIGILOCKER_USE_PKCE", "false").toLowerCase()),
+  dlFlow: envStr("DIGILOCKER_DL_FLOW"),
+  acr: envStr("DIGILOCKER_ACR"),
+  amr: envStr("DIGILOCKER_AMR"),
+  userinfoUrl: envStr("DIGILOCKER_USERINFO_URL"),
+  aadhaarUrl: envStr("DIGILOCKER_AADHAAR_URL"),
+  webOrigin: envStr("PUBLIC_WEB_ORIGIN"),
+};
+
+const DIGILOCKER_ENABLED = Boolean(
+  DIGILOCKER.clientId &&
+    DIGILOCKER.clientSecret &&
+    DIGILOCKER.authorizeUrl &&
+    DIGILOCKER.tokenUrl &&
+    DIGILOCKER.redirectUri
+);
+
+// state -> { uid, createdAtMs, aadhaarLast4, codeVerifier? }
+const digilockerStateStore = new Map();
+const DIGILOCKER_STATE_TTL_MS = 10 * 60 * 1000;
+
+function pruneDigiLockerStates(now = Date.now()) {
+  for (const [key, value] of digilockerStateStore.entries()) {
+    if (!value?.createdAtMs || now - value.createdAtMs > DIGILOCKER_STATE_TTL_MS) {
+      digilockerStateStore.delete(key);
+    }
+  }
+}
+
+function createDigiLockerState() {
+  return crypto.randomBytes(24).toString("hex");
+}
+
+function base64UrlEncode(buffer) {
+  return Buffer.from(buffer)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function createPkceCodeVerifier() {
+  // RFC 7636: 43..128 characters, unreserved
+  return base64UrlEncode(crypto.randomBytes(32));
+}
+
+function createPkceCodeChallengeS256(codeVerifier) {
+  const digest = crypto.createHash("sha256").update(String(codeVerifier), "utf8").digest();
+  return base64UrlEncode(digest);
+}
+
+async function postFormUrlEncoded(url, { headers = {}, bodyObj = {} } = {}) {
+  if (!fetchApi) {
+    const err = new Error("Node fetch API unavailable");
+    err.status = 503;
+    throw err;
+  }
+
+  const body = new URLSearchParams();
+  for (const [k, v] of Object.entries(bodyObj)) {
+    if (v === undefined || v === null) continue;
+    body.set(k, String(v));
+  }
+
+  const res = await fetchApi(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      ...headers,
+    },
+    body,
+  });
+
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+  if (!res.ok) {
+    const message =
+      (data && typeof data === "object" && (data.error_description || data.error))
+        ? String(data.error_description || data.error)
+        : typeof data === "string"
+          ? data
+          : `Request failed (${res.status})`;
+    const err = new Error(message);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+async function fetchJson(url, { method = "GET", headers = {}, body } = {}) {
+  if (!fetchApi) {
+    const err = new Error("Node fetch API unavailable");
+    err.status = 503;
+    throw err;
+  }
+
+  const res = await fetchApi(url, {
+    method,
+    headers,
+    body,
+  });
+
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+  if (!res.ok) {
+    const message =
+      (data && typeof data === "object" && data.error) ? String(data.error) :
+      (typeof data === "string" && data) ? data :
+      `Request failed (${res.status})`;
+    const err = new Error(message);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
 app.get("/api/health", async (_req, res) => {
   try {
     const result = await pool.query(
@@ -610,6 +795,204 @@ app.get("/api/health", async (_req, res) => {
     });
   } catch (error) {
     res.status(500).json({ ok: false, error: String(error?.message || error) });
+  }
+});
+
+app.get("/api/digilocker/status", (_req, res) => {
+  return res.json({
+    enabled: DIGILOCKER_ENABLED,
+    configured: {
+      clientId: Boolean(DIGILOCKER.clientId),
+      clientSecret: Boolean(DIGILOCKER.clientSecret),
+      authorizeUrl: Boolean(DIGILOCKER.authorizeUrl),
+      tokenUrl: Boolean(DIGILOCKER.tokenUrl),
+      redirectUri: Boolean(DIGILOCKER.redirectUri),
+      scopes: Boolean(DIGILOCKER.scopes),
+      webOrigin: Boolean(DIGILOCKER.webOrigin),
+    },
+  });
+});
+
+app.post("/api/digilocker/auth-url", requireUser, (req, res) => {
+  pruneDigiLockerStates();
+
+  if (!DIGILOCKER_ENABLED) {
+    return res.status(503).json({
+      error:
+        "DigiLocker is not configured on the server. Set DIGILOCKER_CLIENT_ID, DIGILOCKER_CLIENT_SECRET, DIGILOCKER_AUTHORIZE_URL, DIGILOCKER_TOKEN_URL, DIGILOCKER_REDIRECT_URI in server/.env",
+    });
+  }
+
+  const aadhaarDigits = String(req.body?.aadhaar || "").replace(/\D/g, "").slice(0, 12);
+  const aadhaarLast4 = aadhaarDigits ? aadhaarDigits.slice(-4) : "";
+
+  const state = createDigiLockerState();
+
+  const statePayload = {
+    uid: String(req.user?.uid || ""),
+    createdAtMs: Date.now(),
+    aadhaarLast4,
+  };
+
+  // APISetu portal generated URLs typically use PKCE (S256).
+  let pkce = null;
+  if (DIGILOCKER.usePkce) {
+    const codeVerifier = createPkceCodeVerifier();
+    const codeChallenge = createPkceCodeChallengeS256(codeVerifier);
+    pkce = { codeVerifier, codeChallenge, codeChallengeMethod: "S256" };
+    statePayload.codeVerifier = codeVerifier;
+  }
+
+  digilockerStateStore.set(state, statePayload);
+
+  const authUrl = buildUrl(DIGILOCKER.authorizeUrl, {
+    response_type: "code",
+    client_id: DIGILOCKER.clientId,
+    redirect_uri: DIGILOCKER.redirectUri,
+    scope: DIGILOCKER.scopes,
+    state,
+    ...(DIGILOCKER.dlFlow ? { dl_flow: DIGILOCKER.dlFlow } : {}),
+    ...(DIGILOCKER.acr ? { acr: DIGILOCKER.acr } : {}),
+    ...(DIGILOCKER.amr ? { amr: DIGILOCKER.amr } : {}),
+    ...(pkce
+      ? {
+          code_challenge: pkce.codeChallenge,
+          code_challenge_method: pkce.codeChallengeMethod,
+        }
+      : {}),
+  });
+
+  return res.json({ url: authUrl, state });
+});
+
+app.get("/api/digilocker/callback", async (req, res) => {
+  pruneDigiLockerStates();
+  const code = String(req.query?.code || "").trim();
+  const state = String(req.query?.state || "").trim();
+
+  const targetOrigin = DIGILOCKER.webOrigin || "*";
+
+  const sendPopupResult = (payload) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    res.status(200).send(`<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>DigiLocker</title></head>
+<body>
+<script>
+(function () {
+  var payload = ${JSON.stringify(payload)};
+  try {
+    if (window.opener && window.opener.postMessage) {
+      window.opener.postMessage(payload, ${JSON.stringify(targetOrigin)});
+    }
+  } catch (e) {}
+  try { window.close(); } catch (e) {}
+})();
+</script>
+</body>
+</html>`);
+  };
+
+  if (!code || !state) {
+    return sendPopupResult({ type: "DIGILOCKER_RESULT", ok: false, error: "Missing code/state" });
+  }
+
+  const stateEntry = digilockerStateStore.get(state);
+  digilockerStateStore.delete(state);
+  if (!stateEntry) {
+    return sendPopupResult({ type: "DIGILOCKER_RESULT", ok: false, error: "Invalid or expired state" });
+  }
+
+  if (!DIGILOCKER_ENABLED) {
+    return sendPopupResult({ type: "DIGILOCKER_RESULT", ok: false, error: "DigiLocker not configured" });
+  }
+
+  try {
+    const tokenHeaders = {};
+    const tokenBody = {
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: DIGILOCKER.redirectUri,
+      client_id: DIGILOCKER.clientId,
+    };
+
+    if (stateEntry?.codeVerifier) {
+      tokenBody.code_verifier = stateEntry.codeVerifier;
+    }
+
+    if (DIGILOCKER.tokenAuthMethod === "basic") {
+      const basic = Buffer.from(`${DIGILOCKER.clientId}:${DIGILOCKER.clientSecret}`, "utf8").toString("base64");
+      tokenHeaders.Authorization = `Basic ${basic}`;
+    } else {
+      tokenBody.client_secret = DIGILOCKER.clientSecret;
+    }
+
+    const token = await postFormUrlEncoded(DIGILOCKER.tokenUrl, {
+      headers: tokenHeaders,
+      bodyObj: tokenBody,
+    });
+
+    const accessToken = String(token?.access_token || "").trim();
+    if (!accessToken) {
+      return sendPopupResult({ type: "DIGILOCKER_RESULT", ok: false, error: "No access_token returned" });
+    }
+
+    const authzHeaders = { Authorization: `Bearer ${accessToken}` };
+
+    let userinfo = null;
+    if (DIGILOCKER.userinfoUrl) {
+      try {
+        userinfo = await fetchJson(DIGILOCKER.userinfoUrl, { headers: authzHeaders });
+      } catch (e) {
+        userinfo = { error: String(e?.message || e) };
+      }
+    }
+
+    let aadhaar = null;
+    if (DIGILOCKER.aadhaarUrl) {
+      try {
+        aadhaar = await fetchJson(DIGILOCKER.aadhaarUrl, { headers: authzHeaders });
+      } catch (e) {
+        aadhaar = { error: String(e?.message || e) };
+      }
+    }
+
+    // Try to surface a consistent small payload for the frontend.
+    const aadhaarNumber = (() => {
+      const candidates = [
+        aadhaar?.aadhaar,
+        aadhaar?.aadhaarNumber,
+        aadhaar?.aadhaar_no,
+        userinfo?.aadhaar,
+        userinfo?.aadhaarNumber,
+        userinfo?.aadhaar_no,
+      ];
+      for (const c of candidates) {
+        const digits = String(c || "").replace(/\D/g, "");
+        if (digits.length === 12) return digits;
+      }
+      return "";
+    })();
+
+    const last4 = aadhaarNumber ? aadhaarNumber.slice(-4) : (stateEntry?.aadhaarLast4 || "");
+
+    return sendPopupResult({
+      type: "DIGILOCKER_RESULT",
+      ok: true,
+      uid: stateEntry?.uid || null,
+      data: {
+        aadhaar: aadhaarNumber || "",
+        aadhaar_last4: last4 || "",
+        // Pass through a few common fields (best-effort).
+        name: userinfo?.name || userinfo?.full_name || "",
+        dob: userinfo?.dob || userinfo?.date_of_birth || "",
+        gender: userinfo?.gender || "",
+      },
+    });
+  } catch (e) {
+    const message = String(e?.message || e || "DigiLocker error");
+    return sendPopupResult({ type: "DIGILOCKER_RESULT", ok: false, error: message });
   }
 });
 

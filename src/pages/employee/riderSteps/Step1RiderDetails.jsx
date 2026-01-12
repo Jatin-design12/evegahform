@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Upload } from "lucide-react";
 import { lookupRider } from "../../../utils/riderLookup";
 import { useRiderForm } from "../RiderFormContext";
+import { apiFetch } from "../../../config/api";
 import {
   getImageDataUrl,
   uploadCompressedImage,
@@ -49,10 +50,122 @@ export default function Step1RiderDetails() {
   const [pendingAadhaar, setPendingAadhaar] = useState("");
   const [banner, setBanner] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+  const [digilocker, setDigilocker] = useState({
+    enabled: false,
+    loading: true,
+    error: "",
+    verifying: false,
+  });
+  const digilockerFlowRef = useRef({ completed: false });
   const bannerTimeoutRef = useRef(null);
   const tempAddressCache = useRef(
     formData.sameAddress ? "" : formData.temporaryAddress || ""
   );
+
+  useEffect(() => {
+    let mounted = true;
+    apiFetch("/api/digilocker/status")
+      .then((data) => {
+        if (!mounted) return;
+        setDigilocker((prev) => ({
+          ...prev,
+          enabled: Boolean(data?.enabled),
+          loading: false,
+          error: "",
+        }));
+      })
+      .catch((e) => {
+        if (!mounted) return;
+        setDigilocker((prev) => ({
+          ...prev,
+          enabled: false,
+          loading: false,
+          error: String(e?.message || ""),
+        }));
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const onMessage = (event) => {
+      // Callback page runs on the API origin (often different from the web origin in dev).
+      const apiBase = String(
+        import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || ""
+      ).trim();
+
+      let apiOrigin = "";
+      try {
+        if (apiBase) apiOrigin = new URL(apiBase, window.location.origin).origin;
+      } catch {
+        apiOrigin = "";
+      }
+
+      const allowedOrigins = new Set([window.location.origin, apiOrigin].filter(Boolean));
+      if (!allowedOrigins.has(event.origin)) return;
+      const payload = event.data;
+      if (!payload || payload.type !== "DIGILOCKER_RESULT") return;
+
+      digilockerFlowRef.current.completed = true;
+
+      setDigilocker((prev) => ({ ...prev, verifying: false }));
+
+      if (!payload.ok) {
+        updateForm({ aadhaarVerified: false });
+        setAadhaarStatus("idle");
+        setAadhaarMessage("");
+        showBanner("error", payload.error || "DigiLocker verification failed.");
+        return;
+      }
+
+      const data = payload.data || {};
+      const aadhaarDigits = String(data.aadhaar || "").replace(/\D/g, "");
+      const aadhaarLast4 = String(data.aadhaar_last4 || "").replace(/\D/g, "").slice(-4);
+
+      const currentAadhaarDigits = sanitizeNumericInput(formData.aadhaar, 12);
+      if (aadhaarDigits && aadhaarDigits.length === 12) {
+        updateForm({
+          aadhaar: aadhaarDigits,
+          aadhaarVerified: true,
+          // Only auto-fill if empty to avoid overwriting typed data.
+          ...(formData.name ? {} : data.name ? { name: String(data.name) } : {}),
+          ...(formData.dob ? {} : data.dob ? { dob: String(data.dob) } : {}),
+          ...(formData.gender ? {} : data.gender ? { gender: String(data.gender) } : {}),
+        });
+      } else {
+        // If server didn't provide full Aadhaar, still mark verified.
+        // If user typed Aadhaar and we have last4, validate match.
+        if (currentAadhaarDigits && aadhaarLast4 && currentAadhaarDigits.slice(-4) !== aadhaarLast4) {
+          updateForm({ aadhaarVerified: false });
+          showBanner("error", "DigiLocker Aadhaar does not match the entered number (last 4 digits mismatch).");
+          return;
+        }
+        updateForm({ aadhaarVerified: true });
+      }
+
+      clearFieldError("aadhaar");
+      setOtpModalOpen(false);
+      setOtpValue("");
+      setOtpError("");
+      setPendingAadhaar("");
+
+      setAadhaarStatus("verified");
+      setAadhaarMessage("Aadhaar verified successfully via DigiLocker.");
+      showBanner("success", "Aadhaar verified via DigiLocker.");
+    };
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [
+    formData.aadhaar,
+    formData.name,
+    formData.dob,
+    formData.gender,
+    updateForm,
+    clearFieldError,
+    showBanner,
+  ]);
 
   useEffect(() => {
     if (!imagePreview?.src) return;
@@ -73,23 +186,23 @@ export default function Step1RiderDetails() {
     };
   }, []);
 
-  const showBanner = (type, message) => {
+  function showBanner(type, message) {
     if (bannerTimeoutRef.current) {
       clearTimeout(bannerTimeoutRef.current);
     }
 
     setBanner({ type, message });
     bannerTimeoutRef.current = setTimeout(() => setBanner(null), 4000);
-  };
+  }
 
-  const clearFieldError = (field) => {
+  function clearFieldError(field) {
     if (!errors[field]) return;
     setErrors((prev) => {
       const next = { ...prev };
       delete next[field];
       return next;
     });
-  };
+  }
 
   const handleImagePick = async (file) => {
     const validation = validateImageFile(file);
@@ -180,6 +293,63 @@ export default function Step1RiderDetails() {
       "Enter the 6-digit OTP sent to the registered mobile (mock: 123456)."
     );
     setOtpModalOpen(true);
+  };
+
+  const handleDigiLockerVerify = async () => {
+    setDigilocker((prev) => ({ ...prev, verifying: true }));
+    digilockerFlowRef.current.completed = false;
+    try {
+      const aadhaarDigits = sanitizeNumericInput(formData.aadhaar, 12);
+      const resp = await apiFetch("/api/digilocker/auth-url", {
+        method: "POST",
+        body: { aadhaar: aadhaarDigits },
+      });
+
+      const url = String(resp?.url || "");
+      if (!url) throw new Error("DigiLocker auth URL not returned");
+
+      const w = 520;
+      const h = 720;
+      const left = Math.max(0, Math.floor(window.screenX + (window.outerWidth - w) / 2));
+      const top = Math.max(0, Math.floor(window.screenY + (window.outerHeight - h) / 2));
+      const features = `popup=yes,width=${w},height=${h},left=${left},top=${top}`;
+
+      const popup = window.open(url, "digilocker_oauth", features);
+      if (!popup) {
+        throw new Error("Popup blocked. Please allow popups and try again.");
+      }
+
+      // We are now waiting for the callback to postMessage.
+      setDigilocker((prev) => ({ ...prev, verifying: false }));
+      setAadhaarStatus("awaiting-otp");
+      setAadhaarMessage("Complete DigiLocker login in the popup to verify Aadhaar.");
+      clearFieldError("aadhaar");
+
+      const startedAt = Date.now();
+      const timer = window.setInterval(() => {
+        // Give it a reasonable window; OAuth can take time.
+        const elapsed = Date.now() - startedAt;
+        if (elapsed > 5 * 60 * 1000) {
+          window.clearInterval(timer);
+          if (!digilockerFlowRef.current.completed) {
+            setAadhaarStatus("idle");
+            setAadhaarMessage("");
+          }
+          return;
+        }
+        if (popup.closed) {
+          window.clearInterval(timer);
+          if (!digilockerFlowRef.current.completed) {
+            setAadhaarStatus("idle");
+            setAadhaarMessage("DigiLocker verification cancelled.");
+          }
+        }
+      }, 500);
+    } catch (e) {
+      setDigilocker((prev) => ({ ...prev, verifying: false }));
+      const message = String(e?.message || e || "Unable to start DigiLocker verification");
+      showBanner("error", message);
+    }
   };
 
   const handleOtpSubmit = () => {
@@ -528,20 +698,28 @@ export default function Step1RiderDetails() {
                 <button
                   type="button"
                   className="btn-primary whitespace-nowrap disabled:opacity-60"
-                  onClick={handleAadhaarVerify}
+                  onClick={digilocker.enabled ? handleDigiLockerVerify : handleAadhaarVerify}
                   disabled={
-                    aadhaarStatus === "awaiting-otp" || formData.aadhaarVerified
+                    digilocker.verifying ||
+                    aadhaarStatus === "awaiting-otp" ||
+                    formData.aadhaarVerified
                   }
                 >
                   {formData.aadhaarVerified
                     ? "Verified"
-                    : aadhaarStatus === "awaiting-otp"
-                    ? "OTP Sent"
-                    : "Verify"}
+                    : digilocker.enabled
+                      ? (digilocker.verifying ? "Opening..." : "Verify via DigiLocker")
+                      : aadhaarStatus === "awaiting-otp"
+                        ? "OTP Sent"
+                        : "Verify"}
                 </button>
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                Mock verification completes after OTP entry.
+                {digilocker.loading
+                  ? "Checking DigiLocker configuration..."
+                  : digilocker.enabled
+                    ? "Verification will open DigiLocker login."
+                    : "Mock verification completes after OTP entry."}
               </p>
               {errors.aadhaar && <p className="error">{errors.aadhaar}</p>}
               {aadhaarMessage && (
