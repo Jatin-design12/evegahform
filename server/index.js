@@ -847,6 +847,9 @@ app.post("/api/digilocker/auth-url", requireUser, (req, res) => {
 
   const authUrl = buildUrl(DIGILOCKER.authorizeUrl, {
     response_type: "code",
+    // Some OAuth providers may default to returning the authorization code in the URL fragment.
+    // Fragments are not sent to the server, so we explicitly prefer query mode.
+    response_mode: "query",
     client_id: DIGILOCKER.clientId,
     redirect_uri: DIGILOCKER.redirectUri,
     scope: DIGILOCKER.scopes,
@@ -869,6 +872,9 @@ app.get("/api/digilocker/callback", async (req, res) => {
   pruneDigiLockerStates();
   const code = String(req.query?.code || "").trim();
   const state = String(req.query?.state || "").trim();
+
+  const oauthError = String(req.query?.error || "").trim();
+  const oauthErrorDescription = String(req.query?.error_description || "").trim();
 
   const targetOrigin = DIGILOCKER.webOrigin || "*";
 
@@ -894,8 +900,61 @@ app.get("/api/digilocker/callback", async (req, res) => {
 </html>`);
   };
 
+  if (oauthError) {
+    const msg = oauthErrorDescription ? `${oauthError}: ${oauthErrorDescription}` : oauthError;
+    return sendPopupResult({ type: "DIGILOCKER_RESULT", ok: false, error: msg });
+  }
+
   if (!code || !state) {
-    return sendPopupResult({ type: "DIGILOCKER_RESULT", ok: false, error: "Missing code/state" });
+    // If DigiLocker (or a proxy in between) returns the authorization code in the URL fragment,
+    // the server will never see it. Recover it in the browser and reload with query params.
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).send(`<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>DigiLocker</title></head>
+<body>
+<script>
+(function () {
+  function safePost(payload) {
+    try {
+      if (window.opener && window.opener.postMessage) {
+        window.opener.postMessage(payload, ${JSON.stringify(targetOrigin)});
+      }
+    } catch (e) {}
+    try { window.close(); } catch (e) {}
+  }
+
+  var search = new URLSearchParams(window.location.search || "");
+  var hash = window.location.hash ? new URLSearchParams(String(window.location.hash).replace(/^#/, "")) : null;
+
+  var err = search.get("error") || (hash && hash.get("error")) || "";
+  var errDesc = search.get("error_description") || (hash && hash.get("error_description")) || "";
+  if (err) {
+    safePost({ type: "DIGILOCKER_RESULT", ok: false, error: errDesc ? (err + ": " + errDesc) : err });
+    return;
+  }
+
+  var code2 = search.get("code") || (hash && hash.get("code")) || "";
+  var state2 = search.get("state") || (hash && hash.get("state")) || "";
+
+  // If code/state arrived via fragment, reload with query so the server can exchange the code.
+  if (code2 && state2 && (!search.get("code") || !search.get("state"))) {
+    try {
+      var url = new URL(window.location.href);
+      url.hash = "";
+      url.searchParams.set("code", code2);
+      url.searchParams.set("state", state2);
+      window.location.replace(url.toString());
+      return;
+    } catch (e) {}
+  }
+
+  safePost({ type: "DIGILOCKER_RESULT", ok: false, error: "Missing code/state" });
+})();
+</script>
+</body>
+</html>`);
   }
 
   const stateEntry = digilockerStateStore.get(state);
@@ -2144,14 +2203,7 @@ app.post("/api/registrations/new-rider", async (req, res) => {
       [mobile]
     );
     if (!existingRiderResult.rows?.length) {
-      const { rows: riderCountRows } = await client.query(
-        `select count(*)::int as count from public.riders`
-      );
-      const riderTotal = riderCountRows?.[0]?.count || 0;
-      if (riderTotal >= 5) {
-        await client.query("rollback");
-        return res.status(403).json({ error: "Rider limit reached (max 5 riders)." });
-      }
+      // No global rider count limit.
     }
 
     // Upsert rider by mobile (and aadhaar when available)
