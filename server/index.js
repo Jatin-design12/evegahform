@@ -1499,6 +1499,15 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
 
     const mediaUrl = `${publicUploadsPrefix}/${encodeURIComponent(fileName)}`;
 
+    const mediaPath = (() => {
+      try {
+        const u = new URL(mediaUrl);
+        return `${u.pathname}${u.search || ""}`;
+      } catch {
+        return mediaUrl;
+      }
+    })();
+
     let mediaCheck = null;
 
     // Preflight: Meta must be able to fetch this URL from the public internet.
@@ -1571,6 +1580,10 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
     const templateLanguage = String(process.env.WHATSAPP_TEMPLATE_LANGUAGE || "en_US").trim();
     const templateBodyParams = String(process.env.WHATSAPP_TEMPLATE_BODY_PARAMS || "").trim();
     const templateHeaderType = String(process.env.WHATSAPP_TEMPLATE_HEADER_TYPE || "").trim().toLowerCase();
+    const templateUrlButtonIndexRaw = String(process.env.WHATSAPP_TEMPLATE_URL_BUTTON_INDEX || "").trim();
+    const templateUrlButtonValueKey = String(
+      process.env.WHATSAPP_TEMPLATE_URL_BUTTON_VALUE_KEY || "mediaUrl"
+    ).trim();
 
     const basePayload = {
       messaging_product: "whatsapp",
@@ -1638,6 +1651,13 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                 formData?.paymentMethod ??
                 "";
 
+              const invoiceDate = new Date().toISOString().slice(0, 10);
+              const plan =
+                formData?.planName ??
+                formData?.plan ??
+                formData?.subscriptionPlan ??
+                "";
+
               const hub = formData?.operationalZone ?? formData?.zone ?? "";
               const vehicleType =
                 formData?.bikeModel ??
@@ -1647,16 +1667,23 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
 
               if (bodyKeys.length) {
                 const values = {
+                  name: riderName,
                   riderName,
                   receiptId,
                   registrationId: receiptId,
                   mediaUrl,
+                  mediaPath,
                   messageBody,
                   amount: String(amount ?? ""),
                   paymentMode: String(paymentMode ?? ""),
                   hub: String(hub ?? ""),
                   vehicleType: String(vehicleType ?? ""),
                   phone: `91${toDigitsValue}`,
+                  invoiceNo: receiptId,
+                  invoice_no: receiptId,
+                  invoiceDate,
+                  invoice_date: invoiceDate,
+                  plan: String(plan ?? ""),
                 };
                 components.push({
                   type: "body",
@@ -1665,6 +1692,46 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                     text: String(values[key] ?? ""),
                   })),
                 });
+              }
+
+              // Optional URL button parameter (for templates with a dynamic URL button)
+              // Example: WHATSAPP_TEMPLATE_URL_BUTTON_INDEX=0 and the template URL is like https://.../{{1}}
+              if (templateUrlButtonIndexRaw) {
+                const index = Number.parseInt(templateUrlButtonIndexRaw, 10);
+                if (Number.isFinite(index) && index >= 0) {
+                  const buttonValue = (() => {
+                    const values = {
+                      name: riderName,
+                      riderName,
+                      receiptId,
+                      registrationId: receiptId,
+                      mediaUrl,
+                      mediaPath,
+                      messageBody,
+                      amount: String(amount ?? ""),
+                      paymentMode: String(paymentMode ?? ""),
+                      hub: String(hub ?? ""),
+                      vehicleType: String(vehicleType ?? ""),
+                      phone: `91${toDigitsValue}`,
+                      invoiceNo: receiptId,
+                      invoice_no: receiptId,
+                      invoiceDate,
+                      invoice_date: invoiceDate,
+                      plan: String(plan ?? ""),
+                      fileName,
+                    };
+                    return String(values[templateUrlButtonValueKey] ?? "");
+                  })();
+
+                  if (buttonValue) {
+                    components.push({
+                      type: "button",
+                      sub_type: "url",
+                      index: String(index),
+                      parameters: [{ type: "text", text: buttonValue }],
+                    });
+                  }
+                }
               }
 
               return components.length ? components : undefined;
