@@ -644,13 +644,26 @@ function parseScopeList(raw) {
     .join(" ");
 }
 
+function removeScope(scopeStr, scopeToRemove) {
+  const target = String(scopeToRemove || "").trim().toLowerCase();
+  if (!target) return String(scopeStr || "").trim();
+  const parts = String(scopeStr || "")
+    .split(/[\s,]+/g)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  return parts.filter((p) => p.toLowerCase() !== target).join(" ");
+}
+
 const DIGILOCKER = {
   clientId: envStr("DIGILOCKER_CLIENT_ID"),
   clientSecret: envStr("DIGILOCKER_CLIENT_SECRET"),
   authorizeUrl: envStr("DIGILOCKER_AUTHORIZE_URL"),
   tokenUrl: envStr("DIGILOCKER_TOKEN_URL"),
   redirectUri: envStr("DIGILOCKER_REDIRECT_URI"),
+  // DigiLocker/APISetu scope support varies by API product. Keep this fully configurable.
+  // If your token endpoint complains about "openid", remove it from DIGILOCKER_SCOPES.
   scopes: parseScopeList(envStr("DIGILOCKER_SCOPES")),
+  disableOpenId: ["true", "1", "yes"].includes(envStr("DIGILOCKER_DISABLE_OPENID", "false").toLowerCase()),
   tokenAuthMethod: envStr("DIGILOCKER_TOKEN_AUTH_METHOD", "body").toLowerCase(),
   usePkce: ["true", "1", "yes"].includes(envStr("DIGILOCKER_USE_PKCE", "false").toLowerCase()),
   dlFlow: envStr("DIGILOCKER_DL_FLOW"),
@@ -845,6 +858,10 @@ app.post("/api/digilocker/auth-url", requireUser, (req, res) => {
 
   digilockerStateStore.set(state, statePayload);
 
+  const effectiveScopes = DIGILOCKER.disableOpenId
+    ? removeScope(DIGILOCKER.scopes, "openid")
+    : DIGILOCKER.scopes;
+
   const authUrl = buildUrl(DIGILOCKER.authorizeUrl, {
     response_type: "code",
     // Some OAuth providers may default to returning the authorization code in the URL fragment.
@@ -852,7 +869,7 @@ app.post("/api/digilocker/auth-url", requireUser, (req, res) => {
     response_mode: "query",
     client_id: DIGILOCKER.clientId,
     redirect_uri: DIGILOCKER.redirectUri,
-    scope: DIGILOCKER.scopes,
+    scope: effectiveScopes,
     state,
     ...(DIGILOCKER.dlFlow ? { dl_flow: DIGILOCKER.dlFlow } : {}),
     ...(DIGILOCKER.acr ? { acr: DIGILOCKER.acr } : {}),
@@ -987,10 +1004,31 @@ app.get("/api/digilocker/callback", async (req, res) => {
       tokenBody.client_secret = DIGILOCKER.clientSecret;
     }
 
-    const token = await postFormUrlEncoded(DIGILOCKER.tokenUrl, {
-      headers: tokenHeaders,
-      bodyObj: tokenBody,
-    });
+    const exchangeToken = async (tokenUrl) => {
+      return postFormUrlEncoded(tokenUrl, {
+        headers: tokenHeaders,
+        bodyObj: tokenBody,
+      });
+    };
+
+    let token;
+    try {
+      token = await exchangeToken(DIGILOCKER.tokenUrl);
+    } catch (e) {
+      const message = String(e?.message || e || "").toLowerCase();
+      // DigiLocker/APISetu has multiple OAuth endpoint versions; some client/API configurations
+      // respond with a misleading "grant_type unsupported... disable openid" when using /oauth2/1/token.
+      // Retry once against /oauth2/2/token to improve compatibility.
+      const canRetry =
+        message.includes("grant_type") &&
+        message.includes("unsupported") &&
+        message.includes("disable") &&
+        message.includes("openid") &&
+        String(DIGILOCKER.tokenUrl || "").includes("/oauth2/1/token");
+      if (!canRetry) throw e;
+      const tokenUrl2 = String(DIGILOCKER.tokenUrl).replace("/oauth2/1/token", "/oauth2/2/token");
+      token = await exchangeToken(tokenUrl2);
+    }
 
     const accessToken = String(token?.access_token || "").trim();
     if (!accessToken) {

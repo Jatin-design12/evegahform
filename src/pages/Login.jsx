@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { getIdTokenResult, signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../config/firebase";
 import Logo from "../assets/logo.png";
@@ -47,7 +48,7 @@ export default function Login() {
 
       navigate("/redirect", { replace: true });
 
-    } catch (err) {
+    } catch {
       setError("Invalid credentials");
     }
   };
@@ -85,6 +86,16 @@ export default function Login() {
             Login
           </button>
         </form>
+
+        <div className="mt-6 flex items-center justify-center gap-3 text-sm text-gray-600">
+          <Link to="/privacy" className="hover:text-gray-900 underline">
+            Privacy Policy
+          </Link>
+          <span className="text-gray-300">|</span>
+          <Link to="/terms" className="hover:text-gray-900 underline">
+            Terms of Service
+          </Link>
+        </div>
       </div>
     </div>
   );

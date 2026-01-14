@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../config/firebase";
 import Logo from "../assets/logo.png";
@@ -13,7 +14,7 @@ export default function UserLogin() {
   const loginUser = async (e) => {
     e.preventDefault();
     try {
-      const user = await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(auth, email, password);
       navigate("/user/dashboard");
     } catch {
       setError("Invalid login credentials");
@@ -54,6 +55,16 @@ export default function UserLogin() {
             Login
           </button>
         </form>
+
+        <div className="mt-6 flex items-center justify-center gap-3 text-sm text-gray-600">
+          <Link to="/privacy" className="hover:text-gray-900 underline">
+            Privacy Policy
+          </Link>
+          <span className="text-gray-300">|</span>
+          <Link to="/terms" className="hover:text-gray-900 underline">
+            Terms of Service
+          </Link>
+        </div>
       </div>
     </div>
   );
