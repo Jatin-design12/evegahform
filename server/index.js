@@ -4137,14 +4137,23 @@ app.get("/api/payment-dues/summary", async (req, res) => {
 async function start() {
   await ensureDbInitialized();
 
+  const nodeEnv = String(process.env.NODE_ENV || "").trim().toLowerCase();
+  const isProduction = nodeEnv === "production";
+
   const listenOnce = (p) =>
     new Promise((resolve, reject) => {
       const server = app.listen(p, () => resolve({ server, port: p }));
       server.on("error", reject);
     });
 
+  if (isProduction) {
+    const result = await listenOnce(port);
+    console.log(`API listening on port ${result.port}`);
+    return;
+  }
+
   let p = port;
-  // Try a few ports in case dev server is already running.
+  // Dev convenience: try a few ports in case a dev server is already running.
   for (let i = 0; i < 5; i += 1) {
     try {
       const result = await listenOnce(p);
@@ -4165,9 +4174,10 @@ async function start() {
     }
   }
 
-  console.error(`Could not bind any port from ${port} to ${port + 4}.`);
+  throw new Error(`Could not bind any port from ${port} to ${port + 4}.`);
 }
 
 start().catch((error) => {
   console.error("Failed to start API server:", String(error?.message || error));
+  process.exit(1);
 });
