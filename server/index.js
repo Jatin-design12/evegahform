@@ -153,13 +153,27 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(aa, bb);
 }
 
+// Keep a small in-memory log of webhook events to debug delivery.
+const whatsappWebhookEvents = [];
+const WHATSAPP_WEBHOOK_EVENTS_MAX = 200;
+
+function pushWhatsAppWebhookEvent(event) {
+  whatsappWebhookEvents.push({
+    at: new Date().toISOString(),
+    ...event,
+  });
+  if (whatsappWebhookEvents.length > WHATSAPP_WEBHOOK_EVENTS_MAX) {
+    whatsappWebhookEvents.splice(0, whatsappWebhookEvents.length - WHATSAPP_WEBHOOK_EVENTS_MAX);
+  }
+}
+
 // ------------------------------
 // WhatsApp Cloud API Webhook
 // ------------------------------
 // Configure in Meta Developer Dashboard:
 // Callback URL: https://<your-domain>/api/webhooks/whatsapp
 // Verify token: WHATSAPP_WEBHOOK_VERIFY_TOKEN
-app.get("/api/webhooks/whatsapp", (req, res) => {
+function handleWhatsAppWebhookVerify(req, res) {
   const mode = String(req.query["hub.mode"] || "");
   const token = String(req.query["hub.verify_token"] || "");
   const challenge = String(req.query["hub.challenge"] || "");
@@ -169,9 +183,9 @@ app.get("/api/webhooks/whatsapp", (req, res) => {
   }
 
   return res.sendStatus(403);
-});
+}
 
-app.post("/api/webhooks/whatsapp", (req, res) => {
+function handleWhatsAppWebhookReceive(req, res) {
   try {
     // Optional verification (recommended). If you don't set WHATSAPP_APP_SECRET, we accept the webhook.
     if (whatsappAppSecret) {
@@ -195,9 +209,11 @@ app.post("/api/webhooks/whatsapp", (req, res) => {
 
         if (statuses.length) {
           // This is what you need to debug “sent but not received” cases.
+          pushWhatsAppWebhookEvent({ type: "statuses", statuses });
           console.log("WhatsApp webhook statuses", JSON.stringify(statuses));
         }
         if (messages.length) {
+          pushWhatsAppWebhookEvent({ type: "messages", messages });
           console.log("WhatsApp webhook messages", JSON.stringify(messages));
         }
       }
@@ -208,6 +224,22 @@ app.post("/api/webhooks/whatsapp", (req, res) => {
     console.error("WhatsApp webhook handler failed", error);
     return res.sendStatus(200);
   }
+}
+
+// Primary endpoint
+app.get("/api/webhooks/whatsapp", handleWhatsAppWebhookVerify);
+app.post("/api/webhooks/whatsapp", handleWhatsAppWebhookReceive);
+
+// Alias endpoint (matches Meta quickstart screenshots some users follow)
+app.get("/api/whatsapp/webhook", handleWhatsAppWebhookVerify);
+app.post("/api/whatsapp/webhook", handleWhatsAppWebhookReceive);
+
+// Debug endpoint to inspect recent webhook events (requires admin token)
+app.get("/api/whatsapp/webhook-events", requireAdmin, (_req, res) => {
+  return res.json({
+    count: whatsappWebhookEvents.length,
+    events: whatsappWebhookEvents.slice(-100),
+  });
 });
 
 function parseDataUrl(dataUrl) {
@@ -1467,6 +1499,8 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
 
     const mediaUrl = `${publicUploadsPrefix}/${encodeURIComponent(fileName)}`;
 
+    let mediaCheck = null;
+
     // Preflight: Meta must be able to fetch this URL from the public internet.
     // Without this, Meta may accept the send request but the user won't receive the document.
     if (fetchApi) {
@@ -1482,25 +1516,27 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
           },
           signal: controller.signal,
         });
+        mediaCheck = {
+          ok: mediaRes.ok,
+          status: mediaRes.status,
+          contentType: String(mediaRes.headers?.get?.("content-type") || ""),
+        };
         if (!mediaRes.ok) {
           return res.status(200).json({
             sent: false,
             mediaUrl,
             reason: `Receipt URL is not publicly reachable (HTTP ${mediaRes.status}). Check PUBLIC_BASE_URL / PUBLIC_UPLOADS_PREFIX / proxy rules.`,
-            mediaCheck: {
-              ok: false,
-              status: mediaRes.status,
-              contentType: String(mediaRes.headers?.get?.("content-type") || ""),
-            },
+            mediaCheck,
           });
         }
       } catch (e) {
         const msg = String(e?.name === "AbortError" ? "Timeout" : (e?.message || e));
+        mediaCheck = { ok: false, error: msg };
         return res.status(200).json({
           sent: false,
           mediaUrl,
           reason: `Receipt URL preflight failed: ${msg}`,
-          mediaCheck: { ok: false, error: msg },
+          mediaCheck,
         });
       } finally {
         clearTimeout(timeout);
@@ -1696,6 +1732,10 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
       sent: true,
       result: responseBody,
       mediaUrl,
+      mediaCheck,
+      warning: !templateName
+        ? "No WhatsApp template configured (WHATSAPP_TEMPLATE_NAME). Business-initiated messages may not be delivered unless the user has an active 24-hour session."
+        : null,
       debug: {
         apiUrl,
         graphVersion,
