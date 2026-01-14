@@ -1144,7 +1144,11 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
     // requiring a separate Nginx rule for /uploads.
     // Override via PUBLIC_UPLOADS_PREFIX (e.g. "/uploads" or "/api/uploads").
     const uploadsPrefix = String(process.env.PUBLIC_UPLOADS_PREFIX || "/api/uploads").trim() || "/api/uploads";
-    const publicUploadsPrefix = `${publicBaseUrl.replace(/\/+$/, "")}${uploadsPrefix.startsWith("/") ? "" : "/"}${uploadsPrefix.replace(/^\/+/, "")}`;
+    const publicUploadsPrefix = (() => {
+      const base = publicBaseUrl.replace(/\/+$/, "");
+      const prefix = uploadsPrefix.replace(/^\/+/, "").replace(/\/+$/, "");
+      return prefix ? `${base}/${prefix}` : base;
+    })();
 
     const rawReceiptId = `${registration?.rentalId || registration?.riderId || Date.now()}`;
     const receiptId = (() => {
