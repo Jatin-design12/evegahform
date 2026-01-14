@@ -1466,6 +1466,47 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
     await fs.promises.writeFile(absPath, pdfBuffer);
 
     const mediaUrl = `${publicUploadsPrefix}/${encodeURIComponent(fileName)}`;
+
+    // Preflight: Meta must be able to fetch this URL from the public internet.
+    // Without this, Meta may accept the send request but the user won't receive the document.
+    if (fetchApi) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 6000);
+      try {
+        const mediaRes = await fetchApi(mediaUrl, {
+          method: "GET",
+          redirect: "follow",
+          headers: {
+            // Keep it small; we only need to confirm the URL is reachable.
+            Range: "bytes=0-0",
+          },
+          signal: controller.signal,
+        });
+        if (!mediaRes.ok) {
+          return res.status(200).json({
+            sent: false,
+            mediaUrl,
+            reason: `Receipt URL is not publicly reachable (HTTP ${mediaRes.status}). Check PUBLIC_BASE_URL / PUBLIC_UPLOADS_PREFIX / proxy rules.`,
+            mediaCheck: {
+              ok: false,
+              status: mediaRes.status,
+              contentType: String(mediaRes.headers?.get?.("content-type") || ""),
+            },
+          });
+        }
+      } catch (e) {
+        const msg = String(e?.name === "AbortError" ? "Timeout" : (e?.message || e));
+        return res.status(200).json({
+          sent: false,
+          mediaUrl,
+          reason: `Receipt URL preflight failed: ${msg}`,
+          mediaCheck: { ok: false, error: msg },
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
     if (!whatsappPhoneNumberId || !whatsappAccessToken) {
       return res.status(200).json({
         sent: false,
@@ -1651,7 +1692,18 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
       });
     }
 
-    return res.status(200).json({ sent: true, result: responseBody, mediaUrl });
+    return res.status(200).json({
+      sent: true,
+      result: responseBody,
+      mediaUrl,
+      debug: {
+        apiUrl,
+        graphVersion,
+        whatsappPhoneNumberId,
+        templateName: templateName || null,
+        to: `91${toDigitsValue}`,
+      },
+    });
   } catch (e) {
     console.error("WhatsApp send failed", e);
     return res.status(500).json({ error: "Failed to send WhatsApp receipt" });
