@@ -867,6 +867,52 @@ function extractDigiLockerRiderData({ userinfo, aadhaarResponse, fallbackLast4 }
   };
 }
 
+function inferDigiLockerDocument(aadhaarResponse) {
+  // Prefer Aadhaar response; it may be XML (string), base64 (string), or JSON (object).
+  if (aadhaarResponse === null || aadhaarResponse === undefined) return null;
+
+  const fromText = (textRaw) => {
+    let text = String(textRaw || "").trim();
+    if (!text) return null;
+
+    // If it's base64, decode (often the case for eAadhaar).
+    const decoded = tryDecodeBase64ToUtf8(text);
+    if (decoded) text = decoded;
+
+    const lower = text.toLowerCase();
+    if (text.startsWith("%PDF-")) {
+      return { mime: "application/pdf", filename: "eaadhaar.pdf", buffer: Buffer.from(text, "utf8") };
+    }
+    if (lower.includes("<printletterbarcodedata") || lower.includes("<?xml")) {
+      return { mime: "application/xml", filename: "eaadhaar.xml", buffer: Buffer.from(text, "utf8") };
+    }
+    return { mime: "text/plain", filename: "digilocker.txt", buffer: Buffer.from(text, "utf8") };
+  };
+
+  if (typeof aadhaarResponse === "string") {
+    return fromText(aadhaarResponse);
+  }
+
+  if (typeof aadhaarResponse === "object") {
+    if (aadhaarResponse?.error) return null;
+    const candidates = [
+      aadhaarResponse.xml,
+      aadhaarResponse.data,
+      aadhaarResponse.response,
+      aadhaarResponse.eaadhaar,
+      aadhaarResponse.eAadhaar,
+      aadhaarResponse.xml_data,
+    ];
+    for (const c of candidates) {
+      if (typeof c === "string" && c.trim()) return fromText(c);
+    }
+    const json = JSON.stringify(aadhaarResponse);
+    return { mime: "application/json", filename: "digilocker.json", buffer: Buffer.from(json, "utf8") };
+  }
+
+  return null;
+}
+
 const DIGILOCKER = {
   clientId: envStr("DIGILOCKER_CLIENT_ID"),
   clientSecret: envStr("DIGILOCKER_CLIENT_SECRET"),
@@ -899,12 +945,28 @@ const DIGILOCKER_ENABLED = Boolean(
 const digilockerStateStore = new Map();
 const DIGILOCKER_STATE_TTL_MS = 10 * 60 * 1000;
 
+// docId -> { uid, createdAtMs, mime, filename, buffer }
+const digilockerDocumentStore = new Map();
+const DIGILOCKER_DOC_TTL_MS = 10 * 60 * 1000;
+
 function pruneDigiLockerStates(now = Date.now()) {
   for (const [key, value] of digilockerStateStore.entries()) {
     if (!value?.createdAtMs || now - value.createdAtMs > DIGILOCKER_STATE_TTL_MS) {
       digilockerStateStore.delete(key);
     }
   }
+}
+
+function pruneDigiLockerDocuments(now = Date.now()) {
+  for (const [key, value] of digilockerDocumentStore.entries()) {
+    if (!value?.createdAtMs || now - value.createdAtMs > DIGILOCKER_DOC_TTL_MS) {
+      digilockerDocumentStore.delete(key);
+    }
+  }
+}
+
+function createDigiLockerDocId() {
+  return crypto.randomBytes(24).toString("hex");
 }
 
 function createDigiLockerState() {
@@ -1037,6 +1099,27 @@ app.get("/api/digilocker/status", (_req, res) => {
       webOrigin: Boolean(DIGILOCKER.webOrigin),
     },
   });
+});
+
+app.get("/api/digilocker/document/:id", requireUser, (req, res) => {
+  pruneDigiLockerDocuments();
+  const id = String(req.params?.id || "").trim();
+  if (!id) return res.sendStatus(404);
+
+  const entry = digilockerDocumentStore.get(id);
+  if (!entry) return res.sendStatus(404);
+  if (String(entry.uid || "") !== String(req.user?.uid || "")) return res.sendStatus(404);
+
+  // One-time read to reduce exposure.
+  digilockerDocumentStore.delete(id);
+
+  const filename = String(entry.filename || "digilocker_document")
+    .replace(/[^a-z0-9._-]+/gi, "-")
+    .slice(0, 120);
+
+  res.setHeader("Content-Type", String(entry.mime || "application/octet-stream"));
+  res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+  return res.status(200).send(entry.buffer);
 });
 
 app.post("/api/digilocker/auth-url", requireUser, (req, res) => {
@@ -1268,6 +1351,22 @@ app.get("/api/digilocker/callback", async (req, res) => {
       }
     }
 
+    pruneDigiLockerDocuments();
+    const inferredDoc = inferDigiLockerDocument(aadhaar);
+    const documentId = inferredDoc && inferredDoc.buffer && inferredDoc.buffer.length
+      ? (() => {
+          const id = createDigiLockerDocId();
+          digilockerDocumentStore.set(id, {
+            uid: stateEntry?.uid || "",
+            createdAtMs: Date.now(),
+            mime: inferredDoc.mime,
+            filename: inferredDoc.filename,
+            buffer: inferredDoc.buffer,
+          });
+          return id;
+        })()
+      : "";
+
     const extracted = extractDigiLockerRiderData({
       userinfo,
       aadhaarResponse: aadhaar,
@@ -1285,6 +1384,9 @@ app.get("/api/digilocker/callback", async (req, res) => {
         dob: extracted.dob || "",
         gender: extracted.gender || "",
         permanent_address: extracted.permanentAddress || "",
+        document_id: documentId || "",
+        document_mime: inferredDoc?.mime || "",
+        document_name: inferredDoc?.filename || "",
       },
     });
   } catch (e) {

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Upload } from "lucide-react";
 import { lookupRider } from "../../../utils/riderLookup";
 import { useRiderForm } from "../RiderFormContext";
-import { apiFetch } from "../../../config/api";
+import { apiFetch, apiFetchBlob } from "../../../config/api";
 import {
   getImageDataUrl,
   uploadCompressedImage,
@@ -56,6 +56,7 @@ export default function Step1RiderDetails() {
     error: "",
     verifying: false,
   });
+  const [digilockerDoc, setDigilockerDoc] = useState(null);
   const digilockerFlowRef = useRef({ completed: false });
   const bannerTimeoutRef = useRef(null);
   const tempAddressCache = useRef(
@@ -115,11 +116,22 @@ export default function Step1RiderDetails() {
         updateForm({ aadhaarVerified: false });
         setAadhaarStatus("idle");
         setAadhaarMessage("");
+        setDigilockerDoc(null);
         showBanner("error", payload.error || "DigiLocker verification failed.");
         return;
       }
 
       const data = payload.data || {};
+      const docId = String(data.document_id || "").trim();
+      setDigilockerDoc(
+        docId
+          ? {
+              id: docId,
+              name: String(data.document_name || "digilocker_document"),
+              mime: String(data.document_mime || ""),
+            }
+          : null
+      );
       const aadhaarDigits = String(data.aadhaar || "").replace(/\D/g, "");
       const aadhaarLast4 = String(data.aadhaar_last4 || "").replace(/\D/g, "").slice(-4);
 
@@ -319,6 +331,7 @@ export default function Step1RiderDetails() {
   const handleDigiLockerVerify = async () => {
     setDigilocker((prev) => ({ ...prev, verifying: true }));
     digilockerFlowRef.current.completed = false;
+    setDigilockerDoc(null);
     try {
       const aadhaarDigits = sanitizeNumericInput(formData.aadhaar, 12);
       const resp = await apiFetch("/api/digilocker/auth-url", {
@@ -370,6 +383,44 @@ export default function Step1RiderDetails() {
       setDigilocker((prev) => ({ ...prev, verifying: false }));
       const message = String(e?.message || e || "Unable to start DigiLocker verification");
       showBanner("error", message);
+    }
+  };
+
+  const handleDownloadDigiLockerDocument = async () => {
+    if (!digilockerDoc?.id) return;
+    try {
+      const { blob, contentType } = await apiFetchBlob(
+        `/api/digilocker/document/${encodeURIComponent(digilockerDoc.id)}`,
+        { method: "GET" }
+      );
+
+      const inferExt = () => {
+        const mime = String(digilockerDoc.mime || contentType || "").toLowerCase();
+        if (mime.includes("pdf")) return ".pdf";
+        if (mime.includes("xml")) return ".xml";
+        if (mime.includes("json")) return ".json";
+        if (mime.includes("text")) return ".txt";
+        return "";
+      };
+
+      let filename = String(digilockerDoc.name || "digilocker_document").trim() || "digilocker_document";
+      if (!/\.[a-z0-9]{2,6}$/i.test(filename)) filename += inferExt();
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+
+      // Endpoint is one-time; clear after success.
+      setDigilockerDoc(null);
+      showBanner("success", "Downloaded DigiLocker document.");
+    } catch (e) {
+      const msg = String(e?.message || e || "Failed to download DigiLocker document");
+      showBanner("error", msg);
     }
   };
 
@@ -755,6 +806,17 @@ export default function Step1RiderDetails() {
                 >
                   {aadhaarMessage}
                 </p>
+              )}
+              {digilockerDoc?.id && (
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    className="text-xs text-blue-600 hover:underline"
+                    onClick={handleDownloadDigiLockerDocument}
+                  >
+                    Download DigiLocker document
+                  </button>
+                </div>
               )}
             </div>
 
