@@ -27,7 +27,16 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-app.use(express.json({ limit: "15mb" }));
+app.use(
+  express.json({
+    limit: "15mb",
+    verify: (req, _res, buf) => {
+      // Preserve raw body for webhook signature verification.
+      // Safe for other routes; the buffer is already in memory.
+      req.rawBody = buf;
+    },
+  })
+);
 
 const port = Number(process.env.PORT || 5050);
 const databaseUrl = process.env.DATABASE_URL;
@@ -36,6 +45,8 @@ const whatsappPhoneNumberId = String(
   process.env.WHATSAPP_PHONE_NUMBER_ID || "982622404928198"
 ).trim();
 const whatsappAccessToken = String(process.env.WHATSAPP_CLOUD_ACCESS_TOKEN || "").trim();
+const whatsappWebhookVerifyToken = String(process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || "").trim();
+const whatsappAppSecret = String(process.env.WHATSAPP_APP_SECRET || "").trim();
 const fetchApi = typeof globalThis.fetch === "function" ? globalThis.fetch.bind(globalThis) : null;
 
 const ADMIN_EMAIL = String(process.env.ADMIN_EMAIL || "adminev@gmail.com").trim().toLowerCase();
@@ -134,6 +145,70 @@ function toDigits(value, maxLen) {
     .replace(/\D/g, "")
     .slice(0, maxLen);
 }
+
+function safeEqual(a, b) {
+  const aa = Buffer.from(String(a || ""), "utf8");
+  const bb = Buffer.from(String(b || ""), "utf8");
+  if (aa.length !== bb.length) return false;
+  return crypto.timingSafeEqual(aa, bb);
+}
+
+// ------------------------------
+// WhatsApp Cloud API Webhook
+// ------------------------------
+// Configure in Meta Developer Dashboard:
+// Callback URL: https://<your-domain>/api/webhooks/whatsapp
+// Verify token: WHATSAPP_WEBHOOK_VERIFY_TOKEN
+app.get("/api/webhooks/whatsapp", (req, res) => {
+  const mode = String(req.query["hub.mode"] || "");
+  const token = String(req.query["hub.verify_token"] || "");
+  const challenge = String(req.query["hub.challenge"] || "");
+
+  if (mode === "subscribe" && whatsappWebhookVerifyToken && token === whatsappWebhookVerifyToken) {
+    return res.status(200).send(challenge);
+  }
+
+  return res.sendStatus(403);
+});
+
+app.post("/api/webhooks/whatsapp", (req, res) => {
+  try {
+    // Optional verification (recommended). If you don't set WHATSAPP_APP_SECRET, we accept the webhook.
+    if (whatsappAppSecret) {
+      const signatureHeader = String(req.get("x-hub-signature-256") || "");
+      const provided = signatureHeader.startsWith("sha256=") ? signatureHeader.slice("sha256=".length) : "";
+      const rawBody = req.rawBody instanceof Buffer ? req.rawBody : Buffer.from(JSON.stringify(req.body || {}));
+      const expected = crypto.createHmac("sha256", whatsappAppSecret).update(rawBody).digest("hex");
+      if (!provided || !safeEqual(provided, expected)) {
+        return res.sendStatus(403);
+      }
+    }
+
+    // WhatsApp webhook payloads come under entry[].changes[].value
+    const entry = Array.isArray(req.body?.entry) ? req.body.entry : [];
+    for (const e of entry) {
+      const changes = Array.isArray(e?.changes) ? e.changes : [];
+      for (const c of changes) {
+        const value = c?.value || {};
+        const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
+        const messages = Array.isArray(value?.messages) ? value.messages : [];
+
+        if (statuses.length) {
+          // This is what you need to debug “sent but not received” cases.
+          console.log("WhatsApp webhook statuses", JSON.stringify(statuses));
+        }
+        if (messages.length) {
+          console.log("WhatsApp webhook messages", JSON.stringify(messages));
+        }
+      }
+    }
+
+    return res.sendStatus(200);
+  } catch (error) {
+    console.error("WhatsApp webhook handler failed", error);
+    return res.sendStatus(200);
+  }
+});
 
 function parseDataUrl(dataUrl) {
   const s = String(dataUrl || "");
@@ -654,6 +729,144 @@ function removeScope(scopeStr, scopeToRemove) {
   return parts.filter((p) => p.toLowerCase() !== target).join(" ");
 }
 
+function isProbablyBase64(s) {
+  const v = String(s || "").trim();
+  if (!v || v.length < 16) return false;
+  // Base64 strings are usually length%4==0, but not always (URL-safe variants / trimmed padding exist).
+  return /^[A-Za-z0-9+/=\r\n_-]+$/.test(v);
+}
+
+function tryDecodeBase64ToUtf8(s) {
+  const v = String(s || "").trim();
+  if (!isProbablyBase64(v)) return null;
+  try {
+    const cleaned = v.replace(/\s+/g, "");
+    const buf = Buffer.from(cleaned, "base64");
+    const text = buf.toString("utf8");
+    // Very rough sanity check: XML should contain '<'
+    if (text.includes("<") && text.includes(">")) return text;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function parseAadhaarXmlLike(input) {
+  // DigiLocker eaadhaar endpoints often return XML text (not JSON).
+  // We extract attributes from <PrintLetterBarcodeData ... /> when present.
+  const xml = String(input || "");
+  const m = xml.match(/<\s*PrintLetterBarcodeData\b([^>]*)\/?\s*>/i);
+  if (!m) return null;
+  const attrText = m[1] || "";
+  const attrs = {};
+  const re = /([A-Za-z_][A-Za-z0-9_:-]*)\s*=\s*"([^"]*)"/g;
+  let mm;
+  while ((mm = re.exec(attrText))) {
+    const key = String(mm[1] || "").trim();
+    const val = String(mm[2] || "").trim();
+    if (key) attrs[key] = val;
+  }
+  return Object.keys(attrs).length ? attrs : null;
+}
+
+function buildAadhaarAddressFromAttrs(attrs) {
+  if (!attrs) return "";
+  const parts = [
+    attrs.co,
+    attrs.house,
+    attrs.street,
+    attrs.lm,
+    attrs.loc,
+    attrs.vtc,
+    attrs.po,
+    attrs.dist,
+    attrs.subdist,
+    attrs.state,
+    attrs.pc,
+  ]
+    .map((x) => String(x || "").trim())
+    .filter(Boolean);
+  return parts.join(", ").replace(/\s+/g, " ").trim();
+}
+
+function extractDigiLockerRiderData({ userinfo, aadhaarResponse, fallbackLast4 }) {
+  // Returns { aadhaarNumber, aadhaarLast4, name, dob, gender, permanentAddress }
+  let aadhaarXmlText = "";
+  let aadhaarAttrs = null;
+
+  if (typeof aadhaarResponse === "string") {
+    aadhaarXmlText = aadhaarResponse;
+  } else if (aadhaarResponse && typeof aadhaarResponse === "object") {
+    const candidates = [
+      aadhaarResponse.xml,
+      aadhaarResponse.data,
+      aadhaarResponse.response,
+      aadhaarResponse.eaadhaar,
+      aadhaarResponse.eAadhaar,
+      aadhaarResponse.xml_data,
+    ];
+    for (const c of candidates) {
+      if (typeof c === "string" && c.trim()) {
+        aadhaarXmlText = c;
+        break;
+      }
+    }
+  }
+
+  if (aadhaarXmlText) {
+    const decoded = tryDecodeBase64ToUtf8(aadhaarXmlText);
+    if (decoded) aadhaarXmlText = decoded;
+    aadhaarAttrs = parseAadhaarXmlLike(aadhaarXmlText);
+  }
+
+  const aadhaarNumber = (() => {
+    const candidates = [
+      aadhaarAttrs?.uid,
+      aadhaarResponse?.aadhaar,
+      aadhaarResponse?.aadhaarNumber,
+      aadhaarResponse?.aadhaar_no,
+      userinfo?.aadhaar,
+      userinfo?.aadhaarNumber,
+      userinfo?.aadhaar_no,
+    ];
+    for (const c of candidates) {
+      const digits = String(c || "").replace(/\D/g, "");
+      if (digits.length === 12) return digits;
+    }
+    return "";
+  })();
+
+  const aadhaarLast4 = (aadhaarNumber ? aadhaarNumber.slice(-4) : String(fallbackLast4 || "").replace(/\D/g, "").slice(-4)) || "";
+  const permanentAddress = buildAadhaarAddressFromAttrs(aadhaarAttrs);
+
+  const name =
+    userinfo?.name ||
+    userinfo?.full_name ||
+    aadhaarAttrs?.name ||
+    "";
+
+  const gender =
+    userinfo?.gender ||
+    aadhaarAttrs?.gender ||
+    "";
+
+  const dob =
+    userinfo?.dob ||
+    userinfo?.date_of_birth ||
+    aadhaarAttrs?.dob ||
+    (aadhaarAttrs?.yob ? String(aadhaarAttrs.yob) : "") ||
+    "";
+
+  return {
+    aadhaarNumber,
+    aadhaarLast4,
+    name: String(name || ""),
+    dob: String(dob || ""),
+    gender: String(gender || ""),
+    permanentAddress: String(permanentAddress || ""),
+  };
+}
+
 const DIGILOCKER = {
   clientId: envStr("DIGILOCKER_CLIENT_ID"),
   clientSecret: envStr("DIGILOCKER_CLIENT_SECRET"),
@@ -1055,36 +1268,23 @@ app.get("/api/digilocker/callback", async (req, res) => {
       }
     }
 
-    // Try to surface a consistent small payload for the frontend.
-    const aadhaarNumber = (() => {
-      const candidates = [
-        aadhaar?.aadhaar,
-        aadhaar?.aadhaarNumber,
-        aadhaar?.aadhaar_no,
-        userinfo?.aadhaar,
-        userinfo?.aadhaarNumber,
-        userinfo?.aadhaar_no,
-      ];
-      for (const c of candidates) {
-        const digits = String(c || "").replace(/\D/g, "");
-        if (digits.length === 12) return digits;
-      }
-      return "";
-    })();
-
-    const last4 = aadhaarNumber ? aadhaarNumber.slice(-4) : (stateEntry?.aadhaarLast4 || "");
+    const extracted = extractDigiLockerRiderData({
+      userinfo,
+      aadhaarResponse: aadhaar,
+      fallbackLast4: stateEntry?.aadhaarLast4 || "",
+    });
 
     return sendPopupResult({
       type: "DIGILOCKER_RESULT",
       ok: true,
       uid: stateEntry?.uid || null,
       data: {
-        aadhaar: aadhaarNumber || "",
-        aadhaar_last4: last4 || "",
-        // Pass through a few common fields (best-effort).
-        name: userinfo?.name || userinfo?.full_name || "",
-        dob: userinfo?.dob || userinfo?.date_of_birth || "",
-        gender: userinfo?.gender || "",
+        aadhaar: extracted.aadhaarNumber || "",
+        aadhaar_last4: extracted.aadhaarLast4 || "",
+        name: extracted.name || "",
+        dob: extracted.dob || "",
+        gender: extracted.gender || "",
+        permanent_address: extracted.permanentAddress || "",
       },
     });
   } catch (e) {

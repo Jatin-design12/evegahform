@@ -132,6 +132,14 @@ export default function Step1RiderDetails() {
           ...(formData.name ? {} : data.name ? { name: String(data.name) } : {}),
           ...(formData.dob ? {} : data.dob ? { dob: String(data.dob) } : {}),
           ...(formData.gender ? {} : data.gender ? { gender: String(data.gender) } : {}),
+          ...(formData.permanentAddress
+            ? {}
+            : data.permanent_address
+              ? { permanentAddress: String(data.permanent_address) }
+              : {}),
+          ...(formData.sameAddress && !formData.temporaryAddress && data.permanent_address
+            ? { temporaryAddress: String(data.permanent_address) }
+            : {}),
         });
       } else {
         // If server didn't provide full Aadhaar, still mark verified.
@@ -141,7 +149,20 @@ export default function Step1RiderDetails() {
           showBanner("error", "DigiLocker Aadhaar does not match the entered number (last 4 digits mismatch).");
           return;
         }
-        updateForm({ aadhaarVerified: true });
+        updateForm({
+          aadhaarVerified: true,
+          ...(formData.name ? {} : data.name ? { name: String(data.name) } : {}),
+          ...(formData.dob ? {} : data.dob ? { dob: String(data.dob) } : {}),
+          ...(formData.gender ? {} : data.gender ? { gender: String(data.gender) } : {}),
+          ...(formData.permanentAddress
+            ? {}
+            : data.permanent_address
+              ? { permanentAddress: String(data.permanent_address) }
+              : {}),
+          ...(formData.sameAddress && !formData.temporaryAddress && data.permanent_address
+            ? { temporaryAddress: String(data.permanent_address) }
+            : {}),
+        });
       }
 
       clearFieldError("aadhaar");
