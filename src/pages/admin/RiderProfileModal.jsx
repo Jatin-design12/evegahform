@@ -153,7 +153,14 @@ export default function RiderProfileModal({ rider, close }) {
     if (downloadingReceipt) return;
     setReceiptError("");
 
-    const rental = rentalOverride || currentRide || latestRide;
+    // When used directly as an onClick handler, React passes the click event.
+    // Guard against treating the event object as a rental.
+    const rentalOverrideValue =
+      rentalOverride && typeof rentalOverride?.preventDefault === "function"
+        ? null
+        : rentalOverride;
+
+    const rental = rentalOverrideValue || currentRide || latestRide;
     if (!rider?.id) {
       setReceiptError("Rider information is missing.");
       return;
