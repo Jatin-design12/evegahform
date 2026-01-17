@@ -29,6 +29,7 @@ import { listBatterySwaps } from "../../utils/batterySwaps";
 import { getPaymentDueSummary, listPaymentDues } from "../../utils/paymentDues";
 import { listOverdueRentals } from "../../utils/overdueRentals";
 import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
+import { formatElapsedMDHM } from "../../utils/durationFormat";
 
 const formatINR = (value) => {
   const n = Number(value || 0);
@@ -119,15 +120,7 @@ const formatOverdueSince = (expectedEnd) => {
   return parts.join(" ");
 };
 
-const formatDuration = (startTime) => {
-  const start = startTime ? new Date(startTime).getTime() : 0;
-  if (!start) return "-";
-  const minutes = Math.max(0, Math.floor((Date.now() - start) / 60000));
-  if (minutes < 60) return `${minutes} mins`;
-  const hours = Math.floor(minutes / 60);
-  const remainder = minutes % 60;
-  return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
-};
+const formatDuration = (startTime) => formatElapsedMDHM(startTime, "-");
 
 function DashboardChartCard({ icon: Icon, title, subtitle, children, action }) {
   return (

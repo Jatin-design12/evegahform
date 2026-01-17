@@ -3,6 +3,7 @@ import AdminSidebar from "../../components/admin/AdminSidebar";
 import StatCard from "../../components/admin/StatCard";
 import { apiFetch } from "../../config/api";
 import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
+import { formatElapsedMDHM } from "../../utils/durationFormat";
 
 import { Users, Bike, IndianRupee, Clock } from "lucide-react";
 
@@ -42,15 +43,7 @@ export default function AdminDashboard() {
 		[]
 	);
 
-	const formatDuration = (startTime) => {
-		const start = startTime ? new Date(startTime).getTime() : 0;
-		if (!start) return "-";
-		const mins = Math.max(0, Math.floor((Date.now() - start) / 60000));
-		if (mins < 60) return `${mins} mins`;
-		const hours = Math.floor(mins / 60);
-		const rem = mins % 60;
-		return rem ? `${hours}h ${rem}m` : `${hours}h`;
-	};
+	const formatDuration = (startTime) => formatElapsedMDHM(startTime, "-");
 
 	const formatDateTime = (value) => {
 		return formatDateTimeDDMMYYYY(value, "-");

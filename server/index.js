@@ -1618,7 +1618,9 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
 
     const riderName = formData?.fullName || "Rider";
     const messageBody = `Hello ${riderName},\nYour EVegah receipt is attached (PDF).`;
-    const graphVersionRaw = String(process.env.WHATSAPP_GRAPH_VERSION || "21.0").trim();
+    const graphVersionRaw = String(
+      process.env.WHATSAPP_GRAPH_VERSION || process.env.WHATSAPP_VERSION || "21.0"
+    ).trim();
     // Meta Graph API expects versions like "v18.0" (leading 'v').
     const graphVersion = graphVersionRaw.toLowerCase().startsWith("v")
       ? graphVersionRaw
@@ -1708,7 +1710,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
               })();
 
               const invoiceDate = (() => {
-                const format = String(process.env.WHATSAPP_TEMPLATE_INVOICE_DATE_FORMAT || "DDMMYYYY")
+                const format = String(process.env.WHATSAPP_TEMPLATE_INVOICE_DATE_FORMAT || "DD/MM/YYYY")
                   .trim()
                   .toUpperCase();
                 const d = invoiceDateSource;
@@ -1718,6 +1720,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                 if (format === "YYYY-MM-DD") return `${yyyy}-${mm}-${dd}`;
                 if (format === "DD-MM-YYYY") return `${dd}-${mm}-${yyyy}`;
                 if (format === "DDMMYYYY") return `${dd}${mm}${yyyy}`;
+                if (format === "DD/MM/YYYY") return `${dd}/${mm}/${yyyy}`;
                 // Default: DD/MM/YYYY
                 return `${dd}/${mm}/${yyyy}`;
               })();
@@ -2775,28 +2778,27 @@ app.post("/api/registrations/new-rider", async (req, res) => {
       return res.status(409).json({ error: "Selected battery is unavailable (already in an active rental)." });
     }
 
+    // Block existing riders from using the New Rider flow.
     const existingRiderResult = await client.query(
-      `select id from public.riders where mobile = $1 limit 1`,
-      [mobile]
+      `select id
+       from public.riders
+       where mobile = $1
+          or ($2::text is not null and aadhaar = $2)
+       limit 1`,
+      [mobile, aadhaar || null]
     );
-    if (!existingRiderResult.rows?.length) {
-      // No global rider count limit.
+    if (existingRiderResult.rows?.length) {
+      await client.query("rollback");
+      return res.status(409).json({
+        error: "Rider already registered. Please use Retain Rider form.",
+      });
     }
 
-    // Upsert rider by mobile (and aadhaar when available)
+    // Insert rider (no upsert)
     const riderResult = await client.query(
       `insert into public.riders (full_name, mobile, aadhaar, dob, gender, permanent_address, temporary_address, reference, status, meta)
        values ($1,$2,$3,$4,$5,$6,$7,$8,'active',$9)
-       on conflict (mobile) do update set
-         full_name = excluded.full_name,
-         aadhaar = coalesce(excluded.aadhaar, public.riders.aadhaar),
-         dob = coalesce(excluded.dob, public.riders.dob),
-         gender = coalesce(excluded.gender, public.riders.gender),
-         permanent_address = coalesce(excluded.permanent_address, public.riders.permanent_address),
-         temporary_address = coalesce(excluded.temporary_address, public.riders.temporary_address),
-         reference = coalesce(excluded.reference, public.riders.reference),
-         meta = coalesce(public.riders.meta, '{}'::jsonb) || coalesce(excluded.meta, '{}'::jsonb),
-         status = 'active'
+       on conflict (mobile) do nothing
        returning id`,
       [
         fullName,
@@ -2810,6 +2812,13 @@ app.post("/api/registrations/new-rider", async (req, res) => {
         JSON.stringify(riderMeta),
       ]
     );
+
+    if (!riderResult.rows?.length) {
+      await client.query("rollback");
+      return res.status(409).json({
+        error: "Rider already registered. Please use Retain Rider form.",
+      });
+    }
 
     const riderId = riderResult.rows?.[0]?.id;
     const riderCode = await ensureRiderCode({ client, riderId });

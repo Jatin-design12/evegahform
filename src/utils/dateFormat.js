@@ -8,7 +8,7 @@ export function formatDateDDMMYYYY(value, fallback = "-") {
   // Avoid timezone shifts for ISO date-only strings.
   if (typeof value === "string" && ISO_DATE_ONLY_RE.test(value)) {
     const [yyyy, mm, dd] = value.split("-");
-    if (yyyy && mm && dd) return `${dd}${mm}${yyyy}`;
+    if (yyyy && mm && dd) return `${dd}/${mm}/${yyyy}`;
     return fallback;
   }
 
@@ -18,7 +18,7 @@ export function formatDateDDMMYYYY(value, fallback = "-") {
   const dd = pad2(d.getDate());
   const mm = pad2(d.getMonth() + 1);
   const yyyy = String(d.getFullYear());
-  return `${dd}${mm}${yyyy}`;
+  return `${dd}/${mm}/${yyyy}`;
 }
 
 export function formatDateTimeDDMMYYYY(value, fallback = "-") {

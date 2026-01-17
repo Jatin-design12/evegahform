@@ -49,6 +49,7 @@ export default function Step1RiderDetails() {
   const [otpError, setOtpError] = useState("");
   const [pendingAadhaar, setPendingAadhaar] = useState("");
   const [banner, setBanner] = useState(null);
+  const [existingRiderMatch, setExistingRiderMatch] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [digilocker, setDigilocker] = useState({
     enabled: false,
@@ -262,35 +263,34 @@ export default function Step1RiderDetails() {
     const lookupPhone = phone ?? formData.phone;
     const lookupAadhaar = aadhaar ?? formData.aadhaar;
 
-    if (!lookupPhone && !lookupAadhaar) return;
+    if (!lookupPhone && !lookupAadhaar) {
+      setExistingRiderMatch(null);
+      return;
+    }
 
-    const rider = await lookupRider({
-      phone: lookupPhone,
-      aadhaar: lookupAadhaar,
-    });
-
-    if (rider) {
-      const sanitizedPhone = sanitizeNumericInput(rider.phone || "", 10);
-      const sanitizedAadhaar = sanitizeNumericInput(rider.aadhaar || "", 12);
-
-      updateForm({
-        name: rider.name,
-        phone: sanitizedPhone,
-        aadhaar: sanitizedAadhaar,
-        gender: rider.gender,
-        bikeModel: rider.bikeModel,
-        isRetainRider: true,
-        existingRiderId: rider.id,
-        aadhaarVerified: true,
+    try {
+      const rider = await lookupRider({
+        phone: lookupPhone,
+        aadhaar: lookupAadhaar,
       });
 
-      setOtpModalOpen(false);
-      setOtpValue("");
-      setOtpError("");
-      setPendingAadhaar("");
-      setAadhaarStatus("verified");
-      setAadhaarMessage("Existing rider matched. Aadhaar verified (mock).");
-      clearFieldError("aadhaar");
+      if (rider) {
+        setExistingRiderMatch(rider);
+        setErrors((prev) => ({
+          ...prev,
+          phone: "Rider already registered. Use Retain Rider form.",
+          aadhaar: "Rider already registered. Use Retain Rider form.",
+        }));
+        showBanner(
+          "error",
+          "Rider already registered. New Rider form is blocked."
+        );
+        return;
+      }
+
+      setExistingRiderMatch(null);
+    } catch (e) {
+      setExistingRiderMatch(null);
     }
   };
 
@@ -487,11 +487,22 @@ export default function Step1RiderDetails() {
   };
 
   const handleNext = () => {
+    if (existingRiderMatch) {
+      setErrors((prev) => ({
+        ...prev,
+        phone: "Rider already registered. Use Retain Rider form.",
+        aadhaar: "Rider already registered. Use Retain Rider form.",
+      }));
+      showBanner("error", "Rider already registered. Please use Retain Rider form.");
+      return;
+    }
+
     const nextErrors = {};
 
     const trimmedName = formData.name.trim();
     const phoneDigits = sanitizeNumericInput(formData.phone, 10);
     const aadhaarDigits = sanitizeNumericInput(formData.aadhaar, 12);
+    const hasGovernmentId = Boolean(formData.governmentId);
     const permanentAddress = formData.permanentAddress.trim();
     const temporaryAddress = formData.temporaryAddress.trim();
 
@@ -505,12 +516,18 @@ export default function Step1RiderDetails() {
       nextErrors.phone = "Enter a valid 10-digit mobile number";
     }
 
-    if (!aadhaarDigits) {
-      nextErrors.aadhaar = "Aadhaar number is required";
-    } else if (!isValidAadhaarNumber(aadhaarDigits)) {
+    // Aadhaar is required only when an ID photo is NOT provided.
+    if (!hasGovernmentId) {
+      if (!aadhaarDigits) {
+        nextErrors.aadhaar = "Aadhaar number is required";
+      } else if (!isValidAadhaarNumber(aadhaarDigits)) {
+        nextErrors.aadhaar = "Enter a valid 12-digit Aadhaar number";
+      } else if (!formData.aadhaarVerified) {
+        nextErrors.aadhaar = "Verify via DigiLocker or capture an ID photo before continuing";
+      }
+    } else if (aadhaarDigits && !isValidAadhaarNumber(aadhaarDigits)) {
+      // If Aadhaar is optionally entered, still validate format.
       nextErrors.aadhaar = "Enter a valid 12-digit Aadhaar number";
-    } else if (!formData.aadhaarVerified && !formData.governmentId) {
-      nextErrors.aadhaar = "Verify via DigiLocker or capture an ID photo before continuing";
     }
 
     if (!permanentAddress) {
@@ -535,7 +552,7 @@ export default function Step1RiderDetails() {
       updateForm({
         name: trimmedName,
         phone: phoneDigits,
-        aadhaar: aadhaarDigits,
+        ...(aadhaarDigits ? { aadhaar: aadhaarDigits } : {}),
         permanentAddress,
         ...(formData.sameAddress
           ? { temporaryAddress: permanentAddress }
@@ -555,6 +572,24 @@ export default function Step1RiderDetails() {
           }`}
         >
           {banner.message}
+        </div>
+      )}
+
+      {existingRiderMatch && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="font-medium">Rider already registered.</p>
+            <p className="text-xs text-red-700/80">
+              New Rider form is blocked for this mobile/Aadhaar. Use Retain Rider instead.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn-outline"
+            onClick={() => navigate("/employee/retain-rider")}
+          >
+            Go to Retain Rider
+          </button>
         </div>
       )}
 
@@ -610,6 +645,7 @@ export default function Step1RiderDetails() {
               maxLength={10}
               onChange={(e) => {
                 const digits = sanitizeNumericInput(e.target.value, 10);
+                setExistingRiderMatch(null);
                 updateForm({ phone: digits });
                 clearFieldError("phone");
               }}
@@ -749,7 +785,9 @@ export default function Step1RiderDetails() {
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
-              <label className="label">Aadhaar Card Number *</label>
+              <label className="label">
+                Aadhaar Card Number {!formData.governmentId ? "*" : ""}
+              </label>
               <div className="flex gap-2">
                 <input
                   className="input flex-1"
@@ -759,6 +797,7 @@ export default function Step1RiderDetails() {
                   maxLength={14}
                   onChange={(e) => {
                     const digits = sanitizeNumericInput(e.target.value, 12);
+                    setExistingRiderMatch(null);
                     updateForm({ aadhaar: digits, aadhaarVerified: false });
                     setAadhaarStatus("idle");
                     setAadhaarMessage("");
@@ -777,7 +816,8 @@ export default function Step1RiderDetails() {
                   disabled={
                     digilocker.verifying ||
                     aadhaarStatus === "awaiting-otp" ||
-                    formData.aadhaarVerified
+                    formData.aadhaarVerified ||
+                    sanitizeNumericInput(formData.aadhaar, 12).length !== 12
                   }
                 >
                   {formData.aadhaarVerified
@@ -901,7 +941,9 @@ export default function Step1RiderDetails() {
 
             <button
               onClick={handleNext}
-              className="btn-primary flex items-center gap-2"
+              type="button"
+              disabled={Boolean(existingRiderMatch)}
+              className="btn-primary flex items-center gap-2 disabled:opacity-60"
             >
               Next →
             </button>
