@@ -3,6 +3,7 @@ import AdminSidebar from "../../components/admin/AdminSidebar";
 import { apiFetch } from "../../config/api";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { formatRentalId, formatReturnId } from "../../utils/entityId";
+import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 
 export default function ReturnsTable() {
   const [data, setData] = useState([]);
@@ -45,10 +46,7 @@ export default function ReturnsTable() {
   }, [search]);
 
   const fmtDateTime = (value) => {
-    if (!value) return "-";
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return "-";
-    return d.toLocaleString("en-GB");
+    return formatDateTimeDDMMYYYY(value, "-");
   };
 
   const formatINR = (value) => {

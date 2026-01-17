@@ -28,6 +28,7 @@ import { deleteRiderDraft, listRiderDrafts } from "../../utils/riderDrafts";
 import { listBatterySwaps } from "../../utils/batterySwaps";
 import { getPaymentDueSummary, listPaymentDues } from "../../utils/paymentDues";
 import { listOverdueRentals } from "../../utils/overdueRentals";
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 
 const formatINR = (value) => {
   const n = Number(value || 0);
@@ -89,28 +90,14 @@ const buildDailySeries = ({ rows, dateField, valueFn, days = 14 }) => {
     buckets.set(key, (buckets.get(key) || 0) + v);
   });
 
-  const fmt = new Intl.DateTimeFormat("en-IN", {
-    month: "short",
-    day: "2-digit",
-  });
-
   return Array.from(buckets.entries()).map(([k, v]) => ({
-    day: fmt.format(new Date(k)),
+    day: formatDateDDMMYYYY(new Date(k), "-"),
     value: v,
   }));
 };
 
 const formatDateTime = (value) => {
-  if (!value) return "-";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleString("en-IN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTimeDDMMYYYY(value, "-");
 };
 
 const formatOverdueSince = (expectedEnd) => {
@@ -724,9 +711,7 @@ export default function Dashboard() {
                       <td className="py-3 pr-3">{d.rider_name || "-"}</td>
                       <td className="py-3 pr-3">{d.rider_phone || "-"}</td>
                       <td className="py-3 pr-3 text-gray-500">
-                        {d.due_date
-                          ? new Date(d.due_date).toLocaleDateString()
-                          : "-"}
+                        {formatDateDDMMYYYY(d.due_date, "-")}
                       </td>
                       <td className="py-3 pr-3">{d.status}</td>
                     </tr>
@@ -884,7 +869,7 @@ export default function Dashboard() {
                     <td className="py-3 pr-3">{s.battery_in}</td>
                     <td className="py-3 pr-3 text-gray-500">
                       {s.swapped_at
-                        ? new Date(s.swapped_at).toLocaleString()
+                        ? formatDateTimeDDMMYYYY(s.swapped_at, "-")
                         : "-"}
                     </td>
                   </tr>
@@ -981,7 +966,7 @@ export default function Dashboard() {
                     <td className="py-3 pr-3">{draft.step_label || "-"}</td>
                     <td className="py-3 pr-3 text-gray-500">
                       {draft.updated_at
-                        ? new Date(draft.updated_at).toLocaleString()
+                        ? formatDateTimeDDMMYYYY(draft.updated_at, "-")
                         : "-"}
                     </td>
                     <td className="py-3 pr-3">

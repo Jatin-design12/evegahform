@@ -142,6 +142,7 @@ export default function Step1RiderDetails() {
           aadhaarVerified: true,
           // Only auto-fill if empty to avoid overwriting typed data.
           ...(formData.name ? {} : data.name ? { name: String(data.name) } : {}),
+          ...(formData.phone ? {} : data.mobile ? { phone: sanitizeNumericInput(data.mobile, 10) } : {}),
           ...(formData.dob ? {} : data.dob ? { dob: String(data.dob) } : {}),
           ...(formData.gender ? {} : data.gender ? { gender: String(data.gender) } : {}),
           ...(formData.permanentAddress
@@ -164,6 +165,7 @@ export default function Step1RiderDetails() {
         updateForm({
           aadhaarVerified: true,
           ...(formData.name ? {} : data.name ? { name: String(data.name) } : {}),
+          ...(formData.phone ? {} : data.mobile ? { phone: sanitizeNumericInput(data.mobile, 10) } : {}),
           ...(formData.dob ? {} : data.dob ? { dob: String(data.dob) } : {}),
           ...(formData.gender ? {} : data.gender ? { gender: String(data.gender) } : {}),
           ...(formData.permanentAddress
@@ -249,7 +251,8 @@ export default function Step1RiderDetails() {
       const payload = buildUploadedPhotoEntry(file, dataUrl, upload);
 
       updateForm({ governmentId: payload });
-      showBanner("success", "ID card uploaded.");
+      clearFieldError("aadhaar");
+      showBanner("success", "ID photo saved.");
     } catch (e) {
       showBanner("error", e?.message || "Unable to upload image");
     }
@@ -506,8 +509,8 @@ export default function Step1RiderDetails() {
       nextErrors.aadhaar = "Aadhaar number is required";
     } else if (!isValidAadhaarNumber(aadhaarDigits)) {
       nextErrors.aadhaar = "Enter a valid 12-digit Aadhaar number";
-    } else if (!formData.aadhaarVerified) {
-      nextErrors.aadhaar = "Please verify Aadhaar before continuing";
+    } else if (!formData.aadhaarVerified && !formData.governmentId) {
+      nextErrors.aadhaar = "Verify via DigiLocker or capture an ID photo before continuing";
     }
 
     if (!permanentAddress) {
@@ -825,6 +828,7 @@ export default function Step1RiderDetails() {
                   ref={governmentIdInputRef}
                   type="file"
                   accept="image/*"
+                  capture="environment"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
@@ -842,8 +846,8 @@ export default function Step1RiderDetails() {
                 <Upload size={20} />
                 <p className="mt-2">
                   {getImageDataUrl(formData.governmentId)
-                    ? "Change uploaded ID card"
-                    : "Click to upload ID card"}
+                    ? "Retake ID photo"
+                    : "Capture ID photo"}
                 </p>
                 <p className="text-xs">PNG, JPG, WEBP (max 5MB)</p>
               </button>
@@ -853,7 +857,7 @@ export default function Step1RiderDetails() {
           {getImageDataUrl(formData.governmentId) ? (
             <div className="mt-1 rounded-xl border border-evegah-border bg-gray-50 p-3">
               <p className="text-xs font-medium text-gray-600 mb-2">
-                Uploaded ID Preview
+                Captured ID Preview
               </p>
               <button
                 type="button"

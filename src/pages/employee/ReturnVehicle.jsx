@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import EmployeeLayout from "../../components/layouts/EmployeeLayout";
 import { apiFetch } from "../../config/api";
 import { formatRentalId } from "../../utils/entityId";
+import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 
 const sanitizeNumericInput = (value, maxLength) =>
   String(value || "")
@@ -234,7 +235,7 @@ export default function ReturnVehicle() {
                 <div>
                   <p className="text-xs text-gray-500">Start</p>
                   <p className="text-sm text-evegah-text font-medium">
-                    {rental.start_time ? new Date(rental.start_time).toLocaleString() : "-"}
+                    {formatDateTimeDDMMYYYY(rental.start_time, "-")}
                   </p>
                 </div>
                 <div>

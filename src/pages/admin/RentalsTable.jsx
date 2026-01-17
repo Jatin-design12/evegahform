@@ -3,6 +3,7 @@ import AdminSidebar from "../../components/admin/AdminSidebar";
 import { apiFetch } from "../../config/api";
 import { Search } from "lucide-react";
 import { formatRentalId } from "../../utils/entityId";
+import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 
 export default function RentalsTable() {
   const [data, setData] = useState([]);
@@ -35,10 +36,7 @@ export default function RentalsTable() {
   }, []);
 
   const fmtDateTime = (value) => {
-    if (!value) return "-";
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return "-";
-    return d.toLocaleString("en-GB");
+    return formatDateTimeDDMMYYYY(value, "-");
   };
 
   const formatINR = (value) => {

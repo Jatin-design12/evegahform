@@ -5,6 +5,7 @@ import EditRiderModal from "./EditRiderModal";
 import DeleteModal from "./DeleteModal";
 import RiderProfileModal from "./RiderProfileModal";
 
+import { formatDateDDMMYYYY } from "../../utils/dateFormat";
 import { Search, Eye, Edit, Trash2, Download } from "lucide-react";
 
 import { useEffect, useState } from "react";
@@ -298,7 +299,7 @@ export default function RidersTable() {
                     </td>
 
                     <td className="p-3">
-                      {new Date(r.created_at).toLocaleDateString()}
+                      {formatDateDDMMYYYY(r.created_at, "-")}
                     </td>
 
                     <td className="p-3 flex justify-center gap-2">

@@ -2,21 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useRiderForm } from "../RiderFormContext";
 import SignaturePad from "../../../components/SignaturePad";
-
-const ordinal = (n) => {
-  const v = n % 100;
-  if (v >= 11 && v <= 13) return `${n}th`;
-  switch (n % 10) {
-    case 1:
-      return `${n}st`;
-    case 2:
-      return `${n}nd`;
-    case 3:
-      return `${n}rd`;
-    default:
-      return `${n}th`;
-  }
-};
+import { formatDateDDMMYYYY } from "../../../utils/dateFormat";
 
 export default function Step3Agreement() {
   const { formData, updateForm } = useRiderForm();
@@ -35,11 +21,7 @@ export default function Step3Agreement() {
   }, []);
 
   const formattedDate = useMemo(() => {
-    const d = formData.agreementDate ? new Date(formData.agreementDate) : new Date();
-    const month = d.toLocaleString("en-US", { month: "long" });
-    const day = d.getDate();
-    const year = d.getFullYear();
-    return `${month} ${ordinal(day)}, ${year}`;
+    return formatDateDDMMYYYY(formData.agreementDate || new Date(), "-");
   }, [formData.agreementDate]);
 
   const isValid =

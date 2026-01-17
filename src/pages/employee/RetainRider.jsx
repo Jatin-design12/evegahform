@@ -942,7 +942,7 @@ function RetainRiderInner() {
           <div className="card space-y-6">
             <div>
               <h3 className="text-base font-semibold text-evegah-text">Payment</h3>
-              <p className="text-sm text-gray-500">Scan QR, then print if required.</p>
+              <p className="text-sm text-gray-500">Scan QR to collect payment.</p>
             </div>
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -971,9 +971,6 @@ function RetainRiderInner() {
               <div className="rounded-xl border border-evegah-border bg-white p-4 space-y-3">
                 <h4 className="font-medium text-evegah-text">Actions</h4>
                 <div className="flex flex-wrap gap-2 print:hidden">
-                  <button type="button" className="btn-muted" onClick={() => window.print()}>
-                    Print Form
-                  </button>
                   <button
                     type="button"
                     className="btn-primary disabled:opacity-60"

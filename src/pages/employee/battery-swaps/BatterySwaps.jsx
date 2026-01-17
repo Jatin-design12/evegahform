@@ -10,6 +10,7 @@ import {
 import { BATTERY_ID_OPTIONS } from "../../../utils/batteryIds";
 import { VEHICLE_ID_OPTIONS } from "../../../utils/vehicleIds";
 import { apiFetch } from "../../../config/api";
+import { formatDateTimeDDMMYYYY } from "../../../utils/dateFormat";
 
 const normalizeId = (value) => String(value || "").trim().toUpperCase();
 const normalizeForCompare = (value) =>
@@ -818,9 +819,7 @@ export default function BatterySwaps() {
                       <td className="py-3 pr-3">{r.battery_out}</td>
                       <td className="py-3 pr-3">{r.battery_in}</td>
                       <td className="py-3 pr-3 text-gray-500">
-                        {r.swapped_at
-                          ? new Date(r.swapped_at).toLocaleString()
-                          : "-"}
+                        {formatDateTimeDDMMYYYY(r.swapped_at, "-")}
                       </td>
                     </tr>
                   ))

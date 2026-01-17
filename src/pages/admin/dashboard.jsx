@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import AdminSidebar from "../../components/admin/AdminSidebar";
 import StatCard from "../../components/admin/StatCard";
 import { apiFetch } from "../../config/api";
+import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 
 import { Users, Bike, IndianRupee, Clock } from "lucide-react";
 
@@ -52,16 +53,7 @@ export default function AdminDashboard() {
 	};
 
 	const formatDateTime = (value) => {
-		if (!value) return "-";
-		const d = new Date(value);
-		if (Number.isNaN(d.getTime())) return "-";
-		return d.toLocaleString("en-IN", {
-			year: "numeric",
-			month: "2-digit",
-			day: "2-digit",
-			hour: "2-digit",
-			minute: "2-digit",
-		});
+		return formatDateTimeDDMMYYYY(value, "-");
 	};
 
 	useEffect(() => {

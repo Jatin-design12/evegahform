@@ -333,7 +333,7 @@ export default function Step5Payment() {
         <div className="rounded-xl border border-evegah-border bg-white p-4 space-y-3">
           <h4 className="font-medium text-evegah-text">Actions</h4>
           <p className="text-sm text-gray-500">
-            Use print for a paper copy. Download or send the receipt after completion.
+            Download or send the receipt after completion.
           </p>
 
           {!completed ? (
@@ -346,10 +346,6 @@ export default function Step5Payment() {
                 aria-disabled={submitting}
               >
                 {"\u2190"} Back
-              </button>
-
-              <button type="button" className="btn-muted" onClick={() => window.print()}>
-                Print Form
               </button>
 
               <button

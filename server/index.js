@@ -821,8 +821,42 @@ function buildAadhaarAddressFromAttrs(attrs) {
   return parts.join(", ").replace(/\s+/g, " ").trim();
 }
 
+function normalizeDobToIso(value) {
+  const v = String(value || "").trim();
+  if (!v) return "";
+  // Already ISO date
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  // Common Aadhaar XML format: DD-MM-YYYY (or DD/MM/YYYY)
+  const m = v.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
+  if (m) {
+    const dd = m[1];
+    const mm = m[2];
+    const yyyy = m[3];
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return v;
+}
+
+function normalizeGender(value) {
+  const v = String(value || "").trim();
+  if (!v) return "";
+  const up = v.toUpperCase();
+  if (up === "M" || up === "MALE") return "Male";
+  if (up === "F" || up === "FEMALE") return "Female";
+  if (up === "O" || up === "OTHER") return "Other";
+  return v;
+}
+
+function normalizeIndianMobile(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (!digits) return "";
+  // Keep last 10 digits for Indian mobiles.
+  const last10 = digits.slice(-10);
+  return last10.length === 10 ? last10 : "";
+}
+
 function extractDigiLockerRiderData({ userinfo, aadhaarResponse, fallbackLast4 }) {
-  // Returns { aadhaarNumber, aadhaarLast4, name, dob, gender, permanentAddress }
+  // Returns { aadhaarNumber, aadhaarLast4, name, dob, gender, permanentAddress, mobile }
   let aadhaarXmlText = "";
   let aadhaarAttrs = null;
 
@@ -877,17 +911,30 @@ function extractDigiLockerRiderData({ userinfo, aadhaarResponse, fallbackLast4 }
     aadhaarAttrs?.name ||
     "";
 
-  const gender =
+  const gender = normalizeGender(
     userinfo?.gender ||
+    userinfo?.gender_name ||
     aadhaarAttrs?.gender ||
-    "";
+    ""
+  );
 
-  const dob =
+  const dobRaw =
     userinfo?.dob ||
     userinfo?.date_of_birth ||
+    userinfo?.birthdate ||
     aadhaarAttrs?.dob ||
     (aadhaarAttrs?.yob ? String(aadhaarAttrs.yob) : "") ||
     "";
+
+  const dob = normalizeDobToIso(dobRaw);
+
+  const mobile = normalizeIndianMobile(
+    userinfo?.mobile ||
+      userinfo?.mobile_number ||
+      userinfo?.phone_number ||
+      userinfo?.phone ||
+      ""
+  );
 
   return {
     aadhaarNumber,
@@ -896,6 +943,7 @@ function extractDigiLockerRiderData({ userinfo, aadhaarResponse, fallbackLast4 }
     dob: String(dob || ""),
     gender: String(gender || ""),
     permanentAddress: String(permanentAddress || ""),
+    mobile: String(mobile || ""),
   };
 }
 
@@ -1416,6 +1464,7 @@ app.get("/api/digilocker/callback", async (req, res) => {
         dob: extracted.dob || "",
         gender: extracted.gender || "",
         permanent_address: extracted.permanentAddress || "",
+        mobile: extracted.mobile || "",
         document_id: documentId || "",
         document_mime: inferredDoc?.mime || "",
         document_name: inferredDoc?.filename || "",
@@ -1651,8 +1700,31 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                 formData?.paymentMethod ??
                 "";
 
-              const invoiceDate = new Date().toISOString().slice(0, 10);
+              const invoiceDateSource = (() => {
+                const v = formData?.rentalStart ?? formData?.rental_start ?? formData?.start_time;
+                if (!v) return new Date();
+                const d = new Date(v);
+                return Number.isNaN(d.getTime()) ? new Date() : d;
+              })();
+
+              const invoiceDate = (() => {
+                const format = String(process.env.WHATSAPP_TEMPLATE_INVOICE_DATE_FORMAT || "DDMMYYYY")
+                  .trim()
+                  .toUpperCase();
+                const d = invoiceDateSource;
+                const dd = String(d.getDate()).padStart(2, "0");
+                const mm = String(d.getMonth() + 1).padStart(2, "0");
+                const yyyy = String(d.getFullYear());
+                if (format === "YYYY-MM-DD") return `${yyyy}-${mm}-${dd}`;
+                if (format === "DD-MM-YYYY") return `${dd}-${mm}-${yyyy}`;
+                if (format === "DDMMYYYY") return `${dd}${mm}${yyyy}`;
+                // Default: DD/MM/YYYY
+                return `${dd}/${mm}/${yyyy}`;
+              })();
+
               const plan =
+                formData?.rentalPackage ??
+                formData?.rental_package ??
                 formData?.planName ??
                 formData?.plan ??
                 formData?.subscriptionPlan ??
@@ -1673,6 +1745,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                   registrationId: receiptId,
                   mediaUrl,
                   mediaPath,
+                  mediaPathNoSlash: String(mediaPath || "").replace(/^\/+/, ""),
                   messageBody,
                   amount: String(amount ?? ""),
                   paymentMode: String(paymentMode ?? ""),
@@ -1707,6 +1780,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                       registrationId: receiptId,
                       mediaUrl,
                       mediaPath,
+                      mediaPathNoSlash: String(mediaPath || "").replace(/^\/+/, ""),
                       messageBody,
                       amount: String(amount ?? ""),
                       paymentMode: String(paymentMode ?? ""),

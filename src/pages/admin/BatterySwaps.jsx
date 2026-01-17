@@ -15,6 +15,7 @@ import {
 
 import { BATTERY_ID_OPTIONS } from "../../utils/batteryIds";
 import { VEHICLE_ID_OPTIONS } from "../../utils/vehicleIds";
+import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 
 import {
   Area,
@@ -113,10 +114,7 @@ export default function AdminBatterySwapsPage() {
   };
 
   const fmtSwapTime = (value) => {
-    if (!value) return "-";
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return "-";
-    return d.toLocaleString("en-GB");
+    return formatDateTimeDDMMYYYY(value, "-");
   };
 
   const load = async () => {

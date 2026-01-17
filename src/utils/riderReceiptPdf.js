@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import logoPngUrl from "../assets/logo.png";
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from "./dateFormat";
 
 function safeString(value) {
   if (value === null || value === undefined) return "-";
@@ -17,16 +18,7 @@ function formatPublicId(value) {
 }
 
 function formatDateTime(value) {
-  if (!value) return "-";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return safeString(value);
-  return d.toLocaleString("en-IN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTimeDDMMYYYY(value, safeString(value));
 }
 
 function maskAadhaar(value) {
@@ -242,7 +234,7 @@ export async function downloadRiderReceiptPdf({ formData, registration } = {}) {
   const logoDataUrl = await getLogoJpegDataUrl();
   drawHeader(doc, {
     receiptNo,
-    generatedAt: receiptGeneratedAt.toLocaleString("en-IN"),
+    generatedAt: formatDateTimeDDMMYYYY(receiptGeneratedAt, "-"),
     logoDataUrl,
   });
 
@@ -252,7 +244,7 @@ export async function downloadRiderReceiptPdf({ formData, registration } = {}) {
     ["Full Name", safeString(formData?.name || formData?.fullName)],
     ["Mobile", safeString(formData?.phone || formData?.mobile)],
     ["Aadhaar", maskAadhaar(formData?.aadhaar)],
-    ["DOB", safeString(formData?.dob)],
+    ["DOB", formatDateDDMMYYYY(formData?.dob, safeString(formData?.dob))],
     ["Gender", safeString(formData?.gender)],
     ["Operational Zone", safeString(formData?.operationalZone)],
     ["Reference", safeString(formData?.reference)],
@@ -345,8 +337,8 @@ export async function downloadRiderReceiptPdf({ formData, registration } = {}) {
 
   const phoneDigits =
     String(formData?.phone || formData?.mobile || "").replace(/\D/g, "").slice(-10) || "unknown";
-  const yyyyMmDd = receiptGeneratedAt.toISOString().slice(0, 10);
+  const ddmmyyyy = formatDateDDMMYYYY(receiptGeneratedAt, receiptGeneratedAt.toISOString().slice(0, 10));
   const code = String(registration?.riderCode || "").trim();
   const codePart = code ? `-${code}` : "";
-  doc.save(`evegah-receipt${codePart}-${phoneDigits}-${yyyyMmDd}.pdf`);
+  doc.save(`evegah-receipt${codePart}-${phoneDigits}-${ddmmyyyy}.pdf`);
 }

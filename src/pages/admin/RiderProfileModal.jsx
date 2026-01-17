@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, apiUrl } from "../../config/api";
 import { downloadRiderReceiptPdf } from "../../utils/riderReceiptPdf";
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 import { Download } from "lucide-react";
 
 export default function RiderProfileModal({ rider, close }) {
@@ -64,17 +65,11 @@ export default function RiderProfileModal({ rider, close }) {
   };
 
   const fmtDate = (value) => {
-    if (!value) return "N/A";
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return "N/A";
-    return d.toLocaleDateString("en-GB");
+    return formatDateDDMMYYYY(value, "N/A");
   };
 
   const fmtDateTime = (value) => {
-    if (!value) return "N/A";
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return "N/A";
-    return d.toLocaleString("en-GB");
+    return formatDateTimeDDMMYYYY(value, "N/A");
   };
 
   const loadAll = useCallback(async () => {
@@ -493,7 +488,7 @@ export default function RiderProfileModal({ rider, close }) {
                           >
                             {rides.map((r) => (
                               <option key={r.id} value={r.id}>
-                                {r.start_time ? new Date(r.start_time).toLocaleString("en-GB") : r.id}
+                                {r.start_time ? formatDateTimeDDMMYYYY(r.start_time, "-") : r.id}
                               </option>
                             ))}
                           </select>
@@ -707,7 +702,7 @@ export default function RiderProfileModal({ rider, close }) {
                           {filteredSwapRows.map((s) => (
                             <tr key={s.id} className="border-b last:border-b-0">
                               <td className="py-3 px-4 whitespace-nowrap text-gray-600">
-                                {s.swapped_at ? new Date(s.swapped_at).toLocaleString("en-GB") : "-"}
+                                {s.swapped_at ? formatDateTimeDDMMYYYY(s.swapped_at, "-") : "-"}
                               </td>
                               <td className="py-3 px-4">{safeText(s.vehicle_number)}</td>
                               <td className="py-3 px-4">{safeText(s.battery_out)}</td>
