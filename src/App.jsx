@@ -4,6 +4,7 @@ import Login from "./pages/Login";
 import Redirect from "./pages/Redirect";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import TermsOfService from "./pages/TermsOfService";
+import Invoice from "./pages/Invoice";
 
 /* ADMIN */
 import AdminDashboard from "./pages/admin/dashboard";
@@ -34,6 +35,7 @@ export default function App() {
             {/* ---------- PUBLIC ---------- */}
             <Route path="/" element={<Login />} />
             <Route path="/redirect" element={<Redirect />} />
+            <Route path="/invoice/:receiptId" element={<Invoice />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<TermsOfService />} />
 

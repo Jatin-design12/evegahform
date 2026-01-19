@@ -253,14 +253,14 @@ export default function Step5Payment() {
       if (res?.sent) {
         setWhatsAppStatus("Receipt sent on WhatsApp.");
       } else if (res?.mediaUrl) {
-        // Fallback: if provider isn't configured, let staff send the link manually.
-        const text = encodeURIComponent(
-          `EVegah Receipt (PDF): ${res.mediaUrl}`
-        );
+        // Fallback: open WhatsApp with a prefilled receipt link.
+        const text = encodeURIComponent(`EVegah Receipt (PDF): ${res.mediaUrl}`);
         window.open(`https://wa.me/91${phoneDigits}?text=${text}`, "_self");
-        setWhatsAppStatus("WhatsApp API not configured. Opened WhatsApp with receipt link.");
+        setWhatsAppStatus(
+          String(res?.reason || res?.error || "Opened WhatsApp with receipt link.")
+        );
       } else {
-        setWhatsAppStatus("Unable to send receipt on WhatsApp.");
+        setWhatsAppStatus(String(res?.reason || res?.error || "Unable to send receipt on WhatsApp."));
       }
     } catch (e) {
       setWhatsAppStatus(String(e?.message || e || "Unable to send on WhatsApp"));

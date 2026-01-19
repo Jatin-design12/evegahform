@@ -1857,8 +1857,14 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
         mediaUrl,
       });
 
-      return res.status(502).json({
+      // Return HTTP 200 so the client can gracefully fall back to opening WhatsApp
+      // with the receipt link (e.g., via wa.me) instead of treating this as a hard
+      // transport error.
+      return res.status(200).json({
+        sent: false,
+        reason: `Failed to send WhatsApp receipt: ${metaMessage}`,
         error: `Failed to send WhatsApp receipt: ${metaMessage}`,
+        providerStatus: response.status,
         detail: metaError || responseBody,
         debug: {
           apiUrl,
@@ -1869,6 +1875,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
           mediaUrl,
         },
         mediaUrl,
+        mediaCheck,
       });
     }
 
