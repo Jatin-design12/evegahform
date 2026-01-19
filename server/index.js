@@ -1542,6 +1542,10 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
       if (base && base.length >= 6) return `EVEGAH-${base.toUpperCase()}`;
       return s;
     })();
+
+    // Prefer a human-friendly receipt number for templates / buttons when available.
+    // `registration.riderCode` already exists in this app (e.g. RDR-202601-XXXXXX).
+    const receiptNumber = String(registration?.riderCode || "").trim() || receiptId;
     const fileName = `receipt_${receiptId}.pdf`;
     const absPath = path.join(uploadsDir, fileName);
     const pdfBuffer = await createReceiptPdfBuffer({ formData, registration });
@@ -1772,10 +1776,15 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                 "";
 
               if (bodyKeys.length) {
+                // If the template is using positional variables ({{1}}, {{2}}, ...), map
+                // the first 5 values in the expected order.
+                const isNumericKeys = bodyKeys.every((k) => /^\d+$/.test(k));
+
                 const values = {
                   name: riderName,
                   riderName,
                   receiptId,
+                  receiptNumber,
                   registrationId: receiptId,
                   mediaUrl,
                   mediaPath,
@@ -1793,13 +1802,27 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                   plan: String(plan ?? ""),
                   fileName,
                 };
+
+                const positionalValues = [
+                  riderName,
+                  receiptNumber,
+                  invoiceDate,
+                  String(plan ?? ""),
+                  String(amount ?? ""),
+                ];
+
                 components.push({
                   type: "body",
-                  parameters: bodyKeys.map((key) => ({
-                    type: "text",
-                    text: String(values[key] ?? ""),
-                    ...(useNamedParams ? { parameter_name: key } : {}),
-                  })),
+                  parameters: bodyKeys.map((key, idx) => {
+                    const text = isNumericKeys && !useNamedParams
+                      ? String(positionalValues[idx] ?? "")
+                      : String(values[key] ?? "");
+                    return {
+                      type: "text",
+                      text,
+                      ...(useNamedParams ? { parameter_name: key } : {}),
+                    };
+                  }),
                 });
               }
 
@@ -1813,6 +1836,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                       name: riderName,
                       riderName,
                       receiptId,
+                      receiptNumber,
                       registrationId: receiptId,
                       mediaUrl,
                       mediaPath,
@@ -1843,7 +1867,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                       parameters: [
                         {
                           type: "text",
-                          text: String(receiptId || mediaPathNoSlash || mediaUrl || "").trim(),
+                          text: String(receiptNumber || receiptId || mediaPathNoSlash || mediaUrl || "").trim(),
                           ...(useNamedParams ? { parameter_name: "1" } : {}),
                         },
                       ],
