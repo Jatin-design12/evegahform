@@ -258,6 +258,18 @@ function extFromMime(mime) {
   return "";
 }
 
+function safeFilePart(value, maxLen) {
+  // Keep filenames URL-friendly and filesystem-safe.
+  // Convert spaces/symbols to '-', collapse repeats, and trim.
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9._-]+/gi, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-._]+|[-._]+$/g, "")
+    .slice(0, maxLen);
+}
+
 function formatYyyyMm(date) {
   const d = date instanceof Date ? date : new Date();
   const yyyy = String(d.getFullYear());
@@ -1546,10 +1558,38 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
     // Prefer a human-friendly receipt number for templates / buttons when available.
     // `registration.riderCode` already exists in this app (e.g. RDR-202601-XXXXXX).
     const receiptNumber = String(registration?.riderCode || "").trim() || receiptId;
-    const fileName = `receipt_${receiptId}.pdf`;
-    const absPath = path.join(uploadsDir, fileName);
+
+    // Always write a unique internal filename for storage/back-compat.
+    const internalFileName = `receipt_${receiptId}.pdf`;
+    const internalAbsPath = path.join(uploadsDir, internalFileName);
     const pdfBuffer = await createReceiptPdfBuffer({ formData, registration });
-    await fs.promises.writeFile(absPath, pdfBuffer);
+    await fs.promises.writeFile(internalAbsPath, pdfBuffer);
+
+    // Friendly/public filename: Evegah_<name>_<mobile>_<bike-no>.pdf
+    const riderNameForFile = safeFilePart(formData?.fullName || formData?.name || "Rider", 40) || "Rider";
+    const mobileForFile = toDigits(formData?.mobile || formData?.phone || toDigitsValue, 10);
+    const bikeNoRaw = formData?.vehicleNumber || formData?.bikeId || formData?.vehicle_number || "";
+    const bikeNoForFile = safeFilePart(bikeNoRaw, 30) || "NA";
+    const friendlyBase = safeFilePart(`Evegah_${riderNameForFile}_${mobileForFile}_${bikeNoForFile}`, 110) || `Evegah_${receiptId}`;
+    let fileName = `${friendlyBase}.pdf`;
+    let absPath = path.join(uploadsDir, fileName);
+
+    // Avoid overwriting an existing friendly filename.
+    try {
+      await fs.promises.copyFile(internalAbsPath, absPath, fs.constants.COPYFILE_EXCL);
+    } catch {
+      fileName = `${safeFilePart(friendlyBase, 95)}_${safeFilePart(receiptId, 20)}.pdf`;
+      absPath = path.join(uploadsDir, fileName);
+      await fs.promises.copyFile(internalAbsPath, absPath).catch(() => null);
+    }
+
+    // Alias using receiptNumber (e.g. RDR-YYYYMM-XXXXXX) so templates can use {{1}} safely.
+    const altKey = safeFilePart(receiptNumber, 80);
+    if (altKey && altKey !== receiptId) {
+      const altFileName = `receipt_${altKey}.pdf`;
+      const altAbsPath = path.join(uploadsDir, altFileName);
+      fs.promises.copyFile(internalAbsPath, altAbsPath).catch(() => null);
+    }
 
     const mediaUrl = `${publicUploadsPrefix}/${encodeURIComponent(fileName)}`;
 
