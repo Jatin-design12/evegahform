@@ -276,7 +276,6 @@ export default function Dashboard() {
 
   const [swaps, setSwaps] = useState([]);
   const [swapsLoading, setSwapsLoading] = useState(false);
-    const [swapPage, setSwapPage] = useState(1);
 
   const [dues, setDues] = useState([]);
   const [duesLoading, setDuesLoading] = useState(false);
@@ -430,10 +429,9 @@ export default function Dashboard() {
   const dueEnd = Math.min(dueTotal, duePage * PAGE_SIZE);
 
   const swapTotal = Array.isArray(swaps) ? swaps.length : 0;
-  const swapPageCount = Math.max(1, Math.ceil(swapTotal / PAGE_SIZE));
-  const swapPageRows = (Array.isArray(swaps) ? swaps : []).slice((swapPage - 1) * PAGE_SIZE, swapPage * PAGE_SIZE);
-  const swapStart = swapTotal ? (swapPage - 1) * PAGE_SIZE + 1 : 0;
-  const swapEnd = Math.min(swapTotal, swapPage * PAGE_SIZE);
+  const swapPageRows = Array.isArray(swaps) ? swaps : [];
+  const swapStart = swapTotal ? 1 : 0;
+  const swapEnd = swapTotal;
 
   const draftTotal = drafts.length;
   const draftPageCount = Math.max(1, Math.ceil(draftTotal / PAGE_SIZE));
@@ -444,10 +442,6 @@ export default function Dashboard() {
   useEffect(() => {
     setDuePage(1);
   }, [dueTotal]);
-
-  useEffect(() => {
-    setSwapPage(1);
-  }, [swapTotal]);
 
   useEffect(() => {
     setDraftPage(1);
@@ -874,27 +868,6 @@ export default function Dashboard() {
             <p>
               Showing {swapStart}-{swapEnd} of {swapTotal} entries
             </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="btn-muted px-3 py-1 text-xs"
-                disabled={swapPage === 1}
-                onClick={() => setSwapPage((prev) => Math.max(1, prev - 1))}
-              >
-                Previous
-              </button>
-              <span>
-                Page {swapPage} / {swapPageCount}
-              </span>
-              <button
-                type="button"
-                className="btn-muted px-3 py-1 text-xs"
-                disabled={swapPage >= swapPageCount}
-                onClick={() => setSwapPage((prev) => Math.min(swapPageCount, prev + 1))}
-              >
-                Next
-              </button>
-            </div>
           </div>
         </div>
       </div>

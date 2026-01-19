@@ -1565,20 +1565,34 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
     const pdfBuffer = await createReceiptPdfBuffer({ formData, registration });
     await fs.promises.writeFile(internalAbsPath, pdfBuffer);
 
-    // Friendly/public filename: Evegah_<name>_<mobile>_<bike-no>.pdf
-    const riderNameForFile = safeFilePart(formData?.fullName || formData?.name || "Rider", 40) || "Rider";
+    // Public filename (stable, easy to share):
+    // evegah-receipt-<receiptNumber>-<mobile>-<DD_MM_YYYY>.pdf
     const mobileForFile = toDigits(formData?.mobile || formData?.phone || toDigitsValue, 10);
-    const bikeNoRaw = formData?.vehicleNumber || formData?.bikeId || formData?.vehicle_number || "";
-    const bikeNoForFile = safeFilePart(bikeNoRaw, 30) || "NA";
-    const friendlyBase = safeFilePart(`Evegah_${riderNameForFile}_${mobileForFile}_${bikeNoForFile}`, 110) || `Evegah_${receiptId}`;
-    let fileName = `${friendlyBase}.pdf`;
+    const receiptNumberForFile = safeFilePart(receiptNumber, 60) || safeFilePart(receiptId, 30);
+    const dateSource = (() => {
+      const v = formData?.agreementDate || formData?.rentalStart || formData?.rental_start;
+      if (!v) return new Date();
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? new Date() : d;
+    })();
+    const dd = String(dateSource.getDate()).padStart(2, "0");
+    const mm = String(dateSource.getMonth() + 1).padStart(2, "0");
+    const yyyy = String(dateSource.getFullYear());
+    const datePart = `${dd}_${mm}_${yyyy}`;
+
+    const publicBase = safeFilePart(
+      `evegah-receipt-${receiptNumberForFile}-${mobileForFile}-${datePart}`,
+      140
+    ) || `evegah-receipt-${safeFilePart(receiptId, 40)}`;
+
+    let fileName = `${publicBase}.pdf`;
     let absPath = path.join(uploadsDir, fileName);
 
-    // Avoid overwriting an existing friendly filename.
+    // Avoid overwriting an existing public filename.
     try {
       await fs.promises.copyFile(internalAbsPath, absPath, fs.constants.COPYFILE_EXCL);
     } catch {
-      fileName = `${safeFilePart(friendlyBase, 95)}_${safeFilePart(receiptId, 20)}.pdf`;
+      fileName = `${safeFilePart(publicBase, 110)}_${safeFilePart(receiptId, 20)}.pdf`;
       absPath = path.join(uploadsDir, fileName);
       await fs.promises.copyFile(internalAbsPath, absPath).catch(() => null);
     }
@@ -2862,7 +2876,7 @@ app.get("/api/riders/:id/battery-swaps", async (req, res) => {
        ) rr on true
        where rr.rider_id = $1
        order by s.swapped_at desc
-       limit 200`,
+       `,
       [riderId]
     );
 
@@ -3903,7 +3917,7 @@ app.get("/api/battery-swaps", async (req, res) => {
        ) rr on true
        ${whereSql}
        order by s.swapped_at desc
-       limit 200`,
+       `,
       params
     );
 
@@ -3922,13 +3936,6 @@ app.post("/api/battery-swaps", async (req, res) => {
   if (!body.battery_in) return res.status(400).json({ error: "battery_in required" });
 
   try {
-    const { rows: batteryCountRows } = await pool.query(
-      `select count(*)::int as count from public.battery_swaps`
-    );
-    if ((batteryCountRows?.[0]?.count || 0) >= 10) {
-      return res.status(403).json({ error: "Battery swap limit reached (max 10 swaps)." });
-    }
-
     const { rows } = await pool.query(
       `insert into public.battery_swaps
        (employee_uid, employee_email, vehicle_number, battery_out, battery_in, swapped_at, notes)

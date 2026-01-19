@@ -23,9 +23,16 @@ const bannerStyles = {
   error: "bg-red-50 border-red-200 text-red-700",
 };
 
-function KpiCard({ label, value, helper, period, onPeriodChange, showPeriod }) {
+function KpiCard({ label, value, helper, period, onPeriodChange, showPeriod, tone = "indigo" }) {
+  const tones = {
+    indigo: "from-indigo-50 to-white border-indigo-200/70",
+    emerald: "from-emerald-50 to-white border-emerald-200/70",
+    amber: "from-amber-50 to-white border-amber-200/70",
+    rose: "from-rose-50 to-white border-rose-200/70",
+  };
+
   return (
-    <div className="rounded-2xl border border-evegah-border bg-white shadow-card p-5">
+    <div className={`rounded-2xl border bg-gradient-to-br shadow-card p-5 ${tones[tone] || tones.indigo}`}>
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm font-medium text-evegah-text">{label}</p>
 
@@ -96,6 +103,12 @@ export default function BatterySwaps() {
   const [batteryInQuery, setBatteryInQuery] = useState("");
 
   const canLoad = useMemo(() => !loading && Boolean(user?.uid), [loading, user?.uid]);
+
+  const usageMax = useMemo(() => {
+    const all = Array.isArray(usageRows) ? usageRows : [];
+    const max = all.reduce((m, r) => Math.max(m, Number(r?.installs || 0), Number(r?.removals || 0)), 0);
+    return max > 0 ? max : 1;
+  }, [usageRows]);
 
   const kpis = useMemo(() => {
     const all = Array.isArray(rows) ? rows : [];
@@ -230,15 +243,45 @@ export default function BatterySwaps() {
     });
   }, [riderOptions, riderQuery]);
 
-  const selectRider = (rider) => {
+  const selectRider = async (rider) => {
+    const riderName = rider?.full_name || "";
+    const riderPhone = String(rider?.mobile || "").replace(/\D+/g, "");
+
     setForm((prev) => ({
       ...prev,
       riderId: rider?.id || "",
-      riderName: rider?.full_name || "",
-      riderPhone: rider?.mobile || "",
+      riderName,
+      riderPhone,
     }));
     setRiderDropdownOpen(false);
     setRiderQuery("");
+
+    if (!riderPhone) return;
+
+    try {
+      const active = await apiFetch(`/api/rentals/active?mobile=${encodeURIComponent(riderPhone)}`);
+      if (!active) {
+        setBanner({
+          type: "warning",
+          message: "No active rental found for this rider. Please select vehicle and battery OUT manually.",
+        });
+        return;
+      }
+
+      const vehicleNumber = normalizeId(active?.vehicle_number || "");
+      const batteryOut = normalizeId(active?.current_battery_id || "");
+
+      setForm((prev) => ({
+        ...prev,
+        vehicleNumber: vehicleNumber || prev.vehicleNumber,
+        batteryOut: batteryOut || prev.batteryOut,
+      }));
+    } catch {
+      setBanner({
+        type: "warning",
+        message: "Unable to auto-fill vehicle/battery from active rental. Please select manually.",
+      });
+    }
   };
 
   const selectVehicleId = (id) => {
@@ -352,16 +395,23 @@ export default function BatterySwaps() {
   return (
     <EmployeeLayout>
       <div className="mx-auto w-full max-w-5xl space-y-6">
-        <div>
+        <div className="rounded-3xl border border-evegah-border bg-gradient-to-br from-indigo-50 via-white to-emerald-50 p-6 shadow-card">
           <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
             Operations
           </p>
-          <h1 className="text-2xl font-semibold text-evegah-text">
-            Battery Swaps
-          </h1>
-          <p className="text-sm text-gray-500">
-            Record battery swap activity (battery OUT → battery IN) per vehicle.
-          </p>
+          <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold text-evegah-text">
+                Battery Swaps
+              </h1>
+              <p className="text-sm text-gray-600">
+                Record battery swap activity (battery OUT → battery IN) per vehicle.
+              </p>
+            </div>
+            <div className="text-xs text-gray-500">
+              Live view of swaps and battery usage
+            </div>
+          </div>
         </div>
 
         {banner && (
@@ -382,13 +432,15 @@ export default function BatterySwaps() {
             period={kpiPeriod}
             onPeriodChange={setKpiPeriod}
             showPeriod
+            tone="indigo"
           />
           <KpiCard
             label="Total Swaps"
             value={rowsLoading ? "—" : kpis.swapsTotal}
-            helper="Last 200 loaded"
+            helper="All loaded"
             period={kpiPeriod}
             onPeriodChange={setKpiPeriod}
+            tone="emerald"
           />
           <KpiCard
             label="Vehicles"
@@ -396,6 +448,7 @@ export default function BatterySwaps() {
             helper="Unique vehicles (period)"
             period={kpiPeriod}
             onPeriodChange={setKpiPeriod}
+            tone="amber"
           />
           <KpiCard
             label="Batteries"
@@ -403,10 +456,11 @@ export default function BatterySwaps() {
             helper="Unique IN/OUT (period)"
             period={kpiPeriod}
             onPeriodChange={setKpiPeriod}
+            tone="rose"
           />
         </div>
 
-        <div className="card">
+        <div className="card border-0 bg-gradient-to-br from-white to-indigo-50/40 shadow-card">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold text-evegah-text">
@@ -721,13 +775,13 @@ export default function BatterySwaps() {
           </div>
 
           <div className="mt-4 flex justify-end">
-            <button type="button" className="btn-primary" onClick={submit}>
+            <button type="button" className="btn-primary shadow-sm" onClick={submit}>
               Save Swap
             </button>
           </div>
         </div>
 
-        <div className="card">
+        <div className="card border-0 bg-gradient-to-br from-white to-emerald-50/40 shadow-card">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold text-evegah-text">
@@ -739,40 +793,71 @@ export default function BatterySwaps() {
             </div>
           </div>
 
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-500 border-b border-evegah-border">
-                  <th className="py-2 pr-3 font-medium">Battery ID</th>
-                  <th className="py-2 pr-3 font-medium">Installs</th>
-                  <th className="py-2 pr-3 font-medium">Removals</th>
-                </tr>
-              </thead>
-              <tbody>
-                {usageLoading ? (
-                  <tr>
-                    <td className="py-3 text-gray-500" colSpan={3}>
-                      Loading usage...
-                    </td>
-                  </tr>
-                ) : usageRows.length === 0 ? (
-                  <tr>
-                    <td className="py-3 text-gray-500" colSpan={3}>
-                      No usage data yet.
-                    </td>
-                  </tr>
-                ) : (
-                  usageRows.map((u) => (
-                    <tr key={u.battery_id} className="border-b last:border-b-0">
-                      <td className="py-3 pr-3">{u.battery_id}</td>
-                      <td className="py-3 pr-3">{u.installs}</td>
-                      <td className="py-3 pr-3">{u.removals}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          {usageLoading ? (
+            <div className="mt-4 text-sm text-gray-500">Loading usage...</div>
+          ) : usageRows.length === 0 ? (
+            <div className="mt-4 text-sm text-gray-500">No usage data yet.</div>
+          ) : (
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {usageRows.map((u, idx) => {
+                const installs = Number(u?.installs || 0);
+                const removals = Number(u?.removals || 0);
+                const installsPct = Math.max(0, Math.min(100, (installs / usageMax) * 100));
+                const removalsPct = Math.max(0, Math.min(100, (removals / usageMax) * 100));
+                const rank = idx + 1;
+
+                return (
+                  <div
+                    key={u.battery_id}
+                    className="rounded-2xl border border-evegah-border bg-white/80 p-4 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs text-gray-500">Battery</p>
+                        <p className="text-sm font-semibold text-evegah-text">{u.battery_id}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">#{rank}</span>
+                        {rank <= 3 ? (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                            Hot
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      <div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-600">Installs</span>
+                          <span className="font-medium text-emerald-700">{installs}</span>
+                        </div>
+                        <div className="mt-1 h-2 w-full rounded-full bg-emerald-100">
+                          <div
+                            className="h-2 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-600"
+                            style={{ width: `${installsPct}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-600">Removals</span>
+                          <span className="font-medium text-indigo-700">{removals}</span>
+                        </div>
+                        <div className="mt-1 h-2 w-full rounded-full bg-indigo-100">
+                          <div
+                            className="h-2 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-600"
+                            style={{ width: `${removalsPct}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div className="card">
