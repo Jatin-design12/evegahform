@@ -17,6 +17,7 @@ export default function Step5Payment() {
   const [formSnapshot, setFormSnapshot] = useState(null);
   const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
   const [whatsAppStatus, setWhatsAppStatus] = useState("");
+  const [whatsAppFallback, setWhatsAppFallback] = useState(null);
 
   const configuredUpiId = import.meta.env.VITE_EVEGAH_UPI_ID;
   const defaultUpiId = "temp.evegah@okaxis";
@@ -214,6 +215,7 @@ export default function Step5Payment() {
 
   const handleDownloadReceipt = async () => {
     setWhatsAppStatus("");
+    setWhatsAppFallback(null);
     try {
       const snapshot = formSnapshot || formData;
       await downloadRiderReceiptPdf({ formData: buildReceiptPayload(snapshot), registration });
@@ -226,6 +228,7 @@ export default function Step5Payment() {
 
   const handleSendWhatsApp = async () => {
     setWhatsAppStatus("");
+    setWhatsAppFallback(null);
     const snapshot = formSnapshot || formData;
     const phoneDigits = String(snapshot?.phone || "")
       .replace(/\D/g, "")
@@ -253,12 +256,10 @@ export default function Step5Payment() {
       if (res?.sent) {
         setWhatsAppStatus("Receipt sent on WhatsApp.");
       } else if (res?.mediaUrl) {
-        // Fallback: open WhatsApp with a prefilled receipt link.
-        const text = encodeURIComponent(`EVegah Receipt (PDF): ${res.mediaUrl}`);
-        window.open(`https://wa.me/91${phoneDigits}?text=${text}`, "_self");
-        setWhatsAppStatus(
-          String(res?.reason || res?.error || "Opened WhatsApp with receipt link.")
-        );
+        // Do not auto-open WhatsApp; prefer Cloud API template.
+        // Provide an explicit button for staff to send manually if needed.
+        setWhatsAppFallback({ phoneDigits, mediaUrl: res.mediaUrl });
+        setWhatsAppStatus(String(res?.reason || res?.error || "Unable to send via WhatsApp Cloud API."));
       } else {
         setWhatsAppStatus(String(res?.reason || res?.error || "Unable to send receipt on WhatsApp."));
       }
@@ -274,8 +275,15 @@ export default function Step5Payment() {
     setRegistration(null);
     setFormSnapshot(null);
     setWhatsAppStatus("");
+    setWhatsAppFallback(null);
     resetForm();
     navigate("/employee/new-rider/step-1", { replace: true });
+  };
+
+  const openManualWhatsApp = () => {
+    if (!whatsAppFallback?.phoneDigits || !whatsAppFallback?.mediaUrl) return;
+    const text = encodeURIComponent(`EVegah Receipt (PDF): ${whatsAppFallback.mediaUrl}`);
+    window.open(`https://wa.me/91${whatsAppFallback.phoneDigits}?text=${text}`, "_self");
   };
 
   return (
@@ -399,6 +407,19 @@ export default function Step5Payment() {
             >
               {whatsAppStatus}
             </p>
+          ) : null}
+
+          {whatsAppFallback?.mediaUrl ? (
+            <div className="rounded-xl border border-evegah-border bg-gray-50 p-3 text-sm text-evegah-text">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-gray-600 break-all">
+                  Manual link: {whatsAppFallback.mediaUrl}
+                </span>
+                <button type="button" className="btn-outline" onClick={openManualWhatsApp}>
+                  Open WhatsApp (manual)
+                </button>
+              </div>
+            </div>
           ) : null}
         </div>
       </div>

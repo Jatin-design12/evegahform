@@ -540,7 +540,7 @@ export default function Dashboard() {
             </button>
           }
         >
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height={224} minWidth={0} minHeight={1}>
             <AreaChart data={swapSeries} margin={{ top: 6, right: 10, left: -10, bottom: 0 }}>
               <CartesianGrid stroke="currentColor" className="text-evegah-border" vertical={false} />
               <XAxis

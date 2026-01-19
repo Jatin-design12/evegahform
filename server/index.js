@@ -1519,6 +1519,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
         sent: false,
         mediaUrl: null,
         reason: "PUBLIC_BASE_URL is required to attach media on WhatsApp",
+        fallback: null,
       });
     }
 
@@ -1585,6 +1586,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
             mediaUrl,
             reason: `Receipt URL is not publicly reachable (HTTP ${mediaRes.status}). Check PUBLIC_BASE_URL / PUBLIC_UPLOADS_PREFIX / proxy rules.`,
             mediaCheck,
+            fallback: null,
           });
         }
       } catch (e) {
@@ -1595,6 +1597,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
           mediaUrl,
           reason: `Receipt URL preflight failed: ${msg}`,
           mediaCheck,
+          fallback: null,
         });
       } finally {
         clearTimeout(timeout);
@@ -1606,6 +1609,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
         sent: false,
         mediaUrl,
         reason: "WhatsApp Cloud API not configured",
+        fallback: "manual",
       });
     }
     if (!fetchApi) {
@@ -1866,6 +1870,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
         error: `Failed to send WhatsApp receipt: ${metaMessage}`,
         providerStatus: response.status,
         detail: metaError || responseBody,
+        fallback: null,
         debug: {
           apiUrl,
           graphVersion,
@@ -1884,6 +1889,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
       result: responseBody,
       mediaUrl,
       mediaCheck,
+      fallback: null,
       warning: !templateName
         ? "No WhatsApp template configured (WHATSAPP_TEMPLATE_NAME). Business-initiated messages may not be delivered unless the user has an active 24-hour session."
         : null,
