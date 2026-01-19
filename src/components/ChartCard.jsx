@@ -1,11 +1,27 @@
-export default function ChartCard({ title }) {
+export default function ChartCard({
+  id,
+  title,
+  subtitle,
+  actions,
+  children,
+  bodyClassName = "",
+}) {
   return (
-    <div className="bg-white p-6 rounded-xl shadow border">
-      <h3 className="font-semibold text-gray-700 mb-4">{title}</h3>
-
-      <div className="h-48 bg-gradient-to-br from-purple-100 to-purple-50 rounded-lg flex items-center justify-center text-gray-500">
-        Chart Placeholder
-      </div>
-    </div>
+    <section id={id} className="bg-white rounded-xl border shadow-sm">
+      {(title || actions) && (
+        <header className="flex items-start justify-between gap-4 px-4 pt-4">
+          <div className="min-w-0">
+            {title && (
+              <h3 className="text-sm font-semibold text-gray-900 truncate">{title}</h3>
+            )}
+            {subtitle && (
+              <p className="text-xs text-gray-500 mt-1 truncate">{subtitle}</p>
+            )}
+          </div>
+          {actions && <div className="shrink-0">{actions}</div>}
+        </header>
+      )}
+      <div className={`p-4 ${bodyClassName}`}>{children}</div>
+    </section>
   );
 }

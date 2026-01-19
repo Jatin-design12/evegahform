@@ -19,8 +19,6 @@ export default function ZonePieChart({ data = [] }) {
 
   return (
     <>
-      <h3 className="font-semibold mb-2">Rides by Zone</h3>
-
       <ResponsiveContainer width="100%" height={240}>
         <PieChart>
           <Pie

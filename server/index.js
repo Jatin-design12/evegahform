@@ -3667,18 +3667,6 @@ app.post("/api/admin/users", requireAdmin, async (req, res) => {
   if (!password) return res.status(400).json({ error: "password required" });
 
   try {
-    if (role === "employee") {
-      const userList = await admin.auth().listUsers(1000);
-      const employeeCount = (userList.users || []).filter((u) => {
-        const existingRole = u.customClaims?.role || "employee";
-        return existingRole === "employee";
-      }).length;
-
-      if (employeeCount >= 2) {
-        return res.status(403).json({ error: "Employee limit reached (max 2 employees)." });
-      }
-    }
-
     const created = await admin.auth().createUser({
       email,
       password,
@@ -3981,8 +3969,7 @@ app.get("/api/battery-swaps/usage", async (req, res) => {
          group by battery_out
        ) x
        group by battery_id
-       order by (sum(installs)) desc, (sum(removals)) desc
-       limit 20`,
+       order by (sum(installs)) desc, (sum(removals)) desc`,
       params
     );
 
