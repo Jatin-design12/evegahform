@@ -1691,6 +1691,14 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                 ? templateBodyParams.split(",").map((s) => s.trim()).filter(Boolean)
                 : [];
 
+              // WhatsApp templates can be configured with either positional variables ({{1}}, {{2}})
+              // or named variables ({{name}}, {{invoice_no}}, etc.).
+              // For named variables, Cloud API requires `parameter_name` on each parameter.
+              const templateParamModeRaw = String(process.env.WHATSAPP_TEMPLATE_PARAM_MODE || "").trim().toLowerCase();
+              const useNamedParams =
+                templateParamModeRaw === "named" ||
+                (templateParamModeRaw !== "positional" && bodyKeys.some((k) => !/^\d+$/.test(k)));
+
               // Try to derive amount if present
               const amount =
                 formData?.amountPaid ??
@@ -1770,6 +1778,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                   parameters: bodyKeys.map((key) => ({
                     type: "text",
                     text: String(values[key] ?? ""),
+                    ...(useNamedParams ? { parameter_name: key } : {}),
                   })),
                 });
               }
@@ -1809,7 +1818,15 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                       type: "button",
                       sub_type: "url",
                       index: String(index),
-                      parameters: [{ type: "text", text: buttonValue }],
+                      // Dynamic URL buttons use a single placeholder (often {{1}}).
+                      // For named-variable templates, Meta expects `parameter_name` too.
+                      parameters: [
+                        {
+                          type: "text",
+                          text: buttonValue,
+                          ...(useNamedParams ? { parameter_name: "1" } : {}),
+                        },
+                      ],
                     });
                   }
                 }
@@ -1859,6 +1876,18 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
         templateName: templateName || null,
         to: `91${toDigitsValue}`,
         mediaUrl,
+        payloadSummary: {
+          type: payload?.type || null,
+          hasTemplate: payload?.type === "template",
+          bodyParamCount: Array.isArray(payload?.template?.components)
+            ? (payload.template.components.find((c) => c?.type === "body")?.parameters?.length || 0)
+            : 0,
+          bodyParamNames: Array.isArray(payload?.template?.components)
+            ? (payload.template.components.find((c) => c?.type === "body")?.parameters || [])
+                .map((p) => p?.parameter_name)
+                .filter(Boolean)
+            : [],
+        },
       });
 
       // Return HTTP 200 so the client can gracefully fall back to opening WhatsApp
@@ -1878,6 +1907,18 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
           templateName: templateName || null,
           to: `91${toDigitsValue}`,
           mediaUrl,
+          payloadSummary: {
+            type: payload?.type || null,
+            hasTemplate: payload?.type === "template",
+            bodyParamCount: Array.isArray(payload?.template?.components)
+              ? (payload.template.components.find((c) => c?.type === "body")?.parameters?.length || 0)
+              : 0,
+            bodyParamNames: Array.isArray(payload?.template?.components)
+              ? (payload.template.components.find((c) => c?.type === "body")?.parameters || [])
+                  .map((p) => p?.parameter_name)
+                  .filter(Boolean)
+              : [],
+          },
         },
         mediaUrl,
         mediaCheck,
