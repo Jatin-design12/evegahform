@@ -1640,6 +1640,24 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
       process.env.WHATSAPP_TEMPLATE_URL_BUTTON_VALUE_KEY || "mediaUrl"
     ).trim();
 
+    const getTemplateValue = (values, key) => {
+      const k = String(key || "").trim();
+      if (!k) return "";
+      if (values[k] !== undefined && values[k] !== null) return String(values[k]);
+
+      // Try case-insensitive lookup to tolerate env typos like "receiptid" vs "receiptId".
+      const lower = k.toLowerCase();
+      for (const [vk, vv] of Object.entries(values)) {
+        if (String(vk).toLowerCase() === lower) return String(vv ?? "");
+      }
+
+      // Common aliases
+      if (lower === "receiptid" || lower === "receipt_id" || lower === "invoice" || lower === "invoiceid") {
+        return String(values.receiptId ?? values.invoiceNo ?? values.invoice_no ?? "");
+      }
+      return "";
+    };
+
     const basePayload = {
       messaging_product: "whatsapp",
       to: `91${toDigitsValue}`,
@@ -1691,13 +1709,14 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                 ? templateBodyParams.split(",").map((s) => s.trim()).filter(Boolean)
                 : [];
 
-              // WhatsApp templates can be configured with either positional variables ({{1}}, {{2}})
-              // or named variables ({{name}}, {{invoice_no}}, etc.).
-              // For named variables, Cloud API requires `parameter_name` on each parameter.
-              const templateParamModeRaw = String(process.env.WHATSAPP_TEMPLATE_PARAM_MODE || "").trim().toLowerCase();
-              const useNamedParams =
-                templateParamModeRaw === "named" ||
-                (templateParamModeRaw !== "positional" && bodyKeys.some((k) => !/^\d+$/.test(k)));
+              // Meta Cloud API template components are position-based: parameters are matched by order.
+              // Some UI surfaces show "variable names" (e.g. {{name}}), but the API still expects
+              // ordered parameters. Only enable `parameter_name` if you explicitly know your template
+              // requires it.
+              const templateParamModeRaw = String(process.env.WHATSAPP_TEMPLATE_PARAM_MODE || "positional")
+                .trim()
+                .toLowerCase();
+              const useNamedParams = templateParamModeRaw === "named";
 
               // Try to derive amount if present
               const amount =
@@ -1772,6 +1791,7 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                   invoiceDate,
                   invoice_date: invoiceDate,
                   plan: String(plan ?? ""),
+                  fileName,
                 };
                 components.push({
                   type: "body",
@@ -1810,16 +1830,30 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                       plan: String(plan ?? ""),
                       fileName,
                     };
-                    return String(values[templateUrlButtonValueKey] ?? "");
+                    return getTemplateValue(values, templateUrlButtonValueKey);
                   })();
 
-                  if (buttonValue) {
+                  // If the template has a dynamic URL button, Meta requires a parameter.
+                  // Fail fast with a clear message rather than sending an invalid request.
+                  if (!buttonValue) {
+                    components.push({
+                      type: "button",
+                      sub_type: "url",
+                      index: String(index),
+                      parameters: [
+                        {
+                          type: "text",
+                          text: String(receiptId || mediaPathNoSlash || mediaUrl || "").trim(),
+                          ...(useNamedParams ? { parameter_name: "1" } : {}),
+                        },
+                      ],
+                    });
+                  } else {
                     components.push({
                       type: "button",
                       sub_type: "url",
                       index: String(index),
                       // Dynamic URL buttons use a single placeholder (often {{1}}).
-                      // For named-variable templates, Meta expects `parameter_name` too.
                       parameters: [
                         {
                           type: "text",
@@ -1887,6 +1921,14 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                 .map((p) => p?.parameter_name)
                 .filter(Boolean)
             : [],
+          buttonUrlParamText: Array.isArray(payload?.template?.components)
+            ? (payload.template.components.find((c) => c?.type === "button" && c?.sub_type === "url")
+                ?.parameters?.[0]?.text || "")
+            : "",
+          buttonUrlIndex: Array.isArray(payload?.template?.components)
+            ? (payload.template.components.find((c) => c?.type === "button" && c?.sub_type === "url")
+                ?.index || null)
+            : null,
         },
       });
 
@@ -1918,6 +1960,14 @@ app.post("/api/whatsapp/send-receipt", async (req, res) => {
                   .map((p) => p?.parameter_name)
                   .filter(Boolean)
               : [],
+            buttonUrlParamText: Array.isArray(payload?.template?.components)
+              ? (payload.template.components.find((c) => c?.type === "button" && c?.sub_type === "url")
+                  ?.parameters?.[0]?.text || "")
+              : "",
+            buttonUrlIndex: Array.isArray(payload?.template?.components)
+              ? (payload.template.components.find((c) => c?.type === "button" && c?.sub_type === "url")
+                  ?.index || null)
+              : null,
           },
         },
         mediaUrl,
